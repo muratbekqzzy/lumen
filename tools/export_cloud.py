@@ -122,6 +122,6 @@ def main():
     OUT.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Exported {len(data['records'])} items to {OUT.resolve()}")
     print("Recordings, PDFs, secrets and Git history were not exported.")
-    print("Import using Lumen Cloud → Sync settings → Import backup.")
+    print("Import using Lumen → Sync settings → Import backup.")
 
 if __name__ == "__main__": main()
