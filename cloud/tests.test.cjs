@@ -12,7 +12,7 @@ function browser(){
  const document={head:{append(){}},body:{append(){}},activeElement:{matches:()=>false},createElement:fakeElement,querySelector(){return null},addEventListener(n,cb){hooks[n]=cb},hidden:false};
  const window={fetch:async()=>new Response("",{status:404}),addEventListener(){},dispatchEvent(){},location:{href:"https://example.github.io/lumen/"},navigator:{onLine:true}};
  const context={window,document,localStorage,sessionStorage,crypto:webcrypto,TextEncoder,TextDecoder,Response,URL,URLSearchParams,FormData,AbortController,
-    navigator:{onLine:true},location:{href:"https://example.github.io/lumen/"},setTimeout:()=>0,clearTimeout(){},setInterval(){},console,confirm:()=>true,alert:()=>{},btoa,atob};
+    Event, navigator:{onLine:true},location:{href:"https://example.github.io/lumen/"},setTimeout:()=>0,clearTimeout(){},setInterval(){},console,confirm:()=>true,alert:()=>{},btoa,atob};
  vm.createContext(context);
  vm.runInContext(code,context,{filename:"cloud/cloud.js"});
  return {window,localStorage};
