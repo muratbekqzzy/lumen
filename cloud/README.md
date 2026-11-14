@@ -1,4 +1,4 @@
-# Lumen Cloud
+# Lumen
 
 Live web interface: https://muratbekqzzy.github.io/lumen/
 
@@ -10,14 +10,14 @@ automatically exchange the original on-disk vault.
 
 ## Configure encrypted automatic sync
 
-1. Open the Lumen Cloud web page and choose **Sync settings** at the bottom.
+1. Open the Lumen web page and choose **Sync settings** at the bottom.
 2. Create a **new private GitHub repository**, e.g. `lumen-private-data`, with no starter files.
    **Do not use this public Lumen code repository for your private knowledge data.**
 3. Create a **fine-grained GitHub personal access token** restricted to that private
    data repository. Grant **Contents: Read and write** and no unrelated permissions.
-4. In Lumen Cloud enter your GitHub username, data repository name, token, and a
+4. In Lumen enter your GitHub username, data repository name, token, and a
    **unique encryption password of 12+ characters**.
-5. Open Lumen Cloud on another device and enter the same credentials. Each device
+5. Open Lumen on another device and enter the same credentials. Each device
    maintains an offline copy and syncs when connected, on edits, on focus, and
    while the app is open. Sync is automatically resumed on reloading the **same
    browser tab**; newly opened browser sessions must be unlocked again.
@@ -44,7 +44,7 @@ uv sync
 uv run python tools/export_cloud.py
 ```
 
-This writes `lumen-cloud-import.json` into the current folder. Open Lumen Cloud,
+This writes `lumen-cloud-import.json` into the current folder. Open Lumen,
 choose **Sync settings → Import backup**, and select that file.
 
 The exporter includes Markdown notes, sections, modules, imported lecture study-pack
@@ -59,7 +59,7 @@ use the web app as your primary editor.
 
 A GitHub Actions workflow in `.github/workflows/lumen-cloud.yml` publishes
 `cloud/index.html`, `cloud/cloud.js`, and static assets from `web/` after
-changes to `main`. Check **Actions → Publish Lumen Cloud** for deployment status.
+changes to `main`. Check **Actions → Publish Lumen** for deployment status.
 
 Do not move tokens or vault content into `web/`, `cloud/`, or public git history.
 
