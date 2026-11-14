@@ -25,6 +25,7 @@ jobs:
       - name: Validate JavaScript
         run: |
           node --check cloud/cloud.js
+          node --test cloud/tests.test.cjs
           node --check web/app.js
           node --check web/graph.js
       - name: Assemble static site
