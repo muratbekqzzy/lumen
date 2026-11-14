@@ -1,4 +1,4 @@
-name: Publish Lumen Cloud
+name: Publish Lumen
 on:
   push:
     branches: [main]
