@@ -5,6 +5,7 @@ Runs locally. No network request is made. No recordings or PDFs are exported.
 Usage: uv run python tools/export_cloud.py [output.json]
 """
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -59,7 +60,7 @@ def main():
         meta = read_meta(folder)
         raw_kind = meta.get("kind")
         kind = raw_kind if raw_kind in ("section","module","lecture") else ("section" if depth == 1 else "module")
-        ident = str(meta.get("id") or "folder_" + str(abs(hash(str(folder)))))
+        ident = str(meta.get("id") or "folder_" + hashlib.sha256(str(folder.relative_to(VAULT)).encode()).hexdigest()[:16])
         unique(ident)
         stat = folder.stat()
         created = millis(meta.get("created"), int(stat.st_ctime * 1000))
@@ -90,13 +91,13 @@ def main():
         order = {i: n for n, i in enumerate(meta.get("order", []))}
         items = []
         for child in folder.iterdir():
-            if child.name in SKIP or child.name.startswith(".") or child.is_symlink(): continue
+            if child.name in SKIP or child.name.startswith(".") or child.is_symlink() or (folder == VAULT and child.name in ("Inbox", "Archive")): continue
             if child.is_dir(): items.append(child)
             elif child.is_file() and child.suffix.lower() == ".md" and child.name != "README.md": items.append(child)
         for child in items:
             if child.is_dir():
                 child_meta = read_meta(child)
-                child_id = str(child_meta.get("id") or "folder_" + str(abs(hash(str(child)))))
+                child_id = str(child_meta.get("id") or "folder_" + hashlib.sha256(str(child.relative_to(VAULT)).encode()).hexdigest()[:16])
             else:
                 fm, _ = note_text(child)
                 child_id = str(fm.get("id") or "note_" + str(abs(hash(str(child)))))
