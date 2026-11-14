@@ -1,0 +1,21 @@
+[project]
+name = "lumen"
+version = "0.1.0"
+description = "A personal knowledge universe: lectures, notes and concepts, connected, and open to any AI assistant through MCP."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.163.0",
+    "imageio-ffmpeg>=0.8.1",
+    "markdown-it-py>=4.3.0",
+    "mcp[cli]>=2.3.0",
+    "mlx-whisper>=0.4.3",
+    "pymupdf>=2.1",
+    "python-multipart>=0.0.33",
+    "pyyaml>=6.0.3",
+    "uvicorn[standard]>=0.54.0",
+]
+
+# Lumen runs straight from this folder (python -m lumen.server); it is not built as a package.
+[tool.uv]
+package = false

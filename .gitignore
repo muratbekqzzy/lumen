@@ -1,0 +1,15 @@
+# Python environment and caches
+.venv/
+__pycache__/
+*.pyc
+
+# Rebuildable caches (search index, slide images, backup log)
+cache/
+
+# Scratch files from processing lectures (may contain course material)
+work/
+
+# Local links and editor/assistant settings
+bin/
+.claude/
+.DS_Store
