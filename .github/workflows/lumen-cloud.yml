@@ -1,0 +1,41 @@
+name: Publish Lumen Cloud
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'cloud/**'
+      - '.github/workflows/lumen-cloud.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JavaScript
+        run: |
+          node --check cloud/cloud.js
+          node --check web/app.js
+          node --check web/graph.js
+      - name: Assemble static site
+        run: |
+          mkdir -p _site
+          cp web/app.js web/graph.js web/style.css web/icon.svg _site/
+          cp cloud/index.html cloud/cloud.js cloud/sw.js cloud/manifest.webmanifest _site/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
