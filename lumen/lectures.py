@@ -9,6 +9,7 @@ import json
 import re
 import shutil
 import sys
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from pathlib import Path
 
 import pymupdf
@@ -30,8 +31,12 @@ def fmt_time(sec: float) -> str:
 def panopto_link(url: str, seconds: float) -> str:
     if not url:
         return ""
-    base = re.sub(r"[&?]start=[\d.]+", "", url)
-    return f"{base}{'&' if '?' in base else '?'}start={int(seconds)}"
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        return ""
+    query = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "start"]
+    query.append(("start", str(max(0, int(seconds)))))
+    return urlunsplit(parsed._replace(query=urlencode(query)))
 
 
 # ---------------------------------------------------------------- slides
@@ -79,7 +84,7 @@ def _match(caption: str, pages: list[dict], current: int | None, data: str = "")
     return best, best_score
 
 
-def align(events: list, pages: list[dict], segments: list[dict], duration: float) -> list[dict]:
+def align(events: list, pages: list[dict], segments: list[dict], duration: float) -> tuple[list[dict], list[int]]:
     """events: [[seconds, caption, notes], ...] from Panopto. Returns slide-by-slide chunks."""
     chunks: list[dict] = []
     current_page = None
@@ -127,7 +132,7 @@ def transcript_markdown(title: str, chunks: list[dict], segments: list[dict], ur
 
 def ingest(parent_id: str, title: str, *, slides: Path | None, audio: Path, panopto_url: str = "",
            panopto_meta: dict | None = None, vocabulary: str = "", lecturer: str = "", date: str = "",
-           course: str = "", lecture_id: str | None = None, log=print) -> str:
+           course: str = "", lecture_id: str | None = None, language: str | None = None, log=print) -> str:
     if lecture_id is None:
         meta, folder = vault.create_lecture(parent_id, title, panopto_url=panopto_url, lecturer=lecturer,
                                             date=date, course=course, status="processing")
@@ -153,7 +158,7 @@ def ingest(parent_id: str, title: str, *, slides: Path | None, audio: Path, pano
 
     log("Transcribing with Whisper (on this Mac)...")
     from .transcribe import transcribe
-    data = transcribe(media, src / "transcript.json", vocabulary)
+    data = transcribe(media, src / "transcript.json", vocabulary, language=language)
     segments = data["segments"]
     duration = segments[-1]["end"] if segments else 0
     if panopto_meta and panopto_meta.get("dur"):
@@ -178,7 +183,13 @@ def realign(lecture_id: str) -> None:
     pages = pdf_pages(src / "slides.pdf") if (src / "slides.pdf").exists() else []
     pm = json.loads((src / "panopto.json").read_text()) if (src / "panopto.json").exists() else {}
     segs = json.loads((src / "transcript.json").read_text())["segments"]
-    chunks, unshown = align(pm.get("slides", []), pages, segs, meta.get("duration") or segs[-1]["end"])
+    duration = max([float(meta.get("duration") or 0), *(float(s["end"]) for s in segs)])
+    if pm.get("slides"):
+        chunks, unshown = align(pm["slides"], pages, segs, duration)
+    else:
+        chunks, unshown = ([{"n": 1, "page": None, "title": "Whole lecture", "start": 0,
+                            "end": duration, "notes": "", "segments": [s["id"] for s in segs],
+                            "not_in_pdf": False}], [])
     (src / "alignment.json").write_text(json.dumps({"chunks": chunks, "pages_not_shown": unshown}, indent=1, ensure_ascii=False))
     (src / "transcript.md").write_text(transcript_markdown(meta["title"], chunks, segs, meta.get("panopto_url", "")))
     vault.commit_now(f"Re-align '{meta['title']}'")

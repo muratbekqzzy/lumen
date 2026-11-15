@@ -137,6 +137,7 @@ function newestFirst(a, b) {
   const stamp = value => typeof value === "number" ? value : (Date.parse(value) || Number(value) || 0);
   return stamp(b.created) - stamp(a.created);
 }
+function fmtTime(sec) { const s = Math.max(0, Math.floor(Number(sec) || 0)); return (s >= 3600 ? Math.floor(s / 3600) + ":" : "") + String(Math.floor(s % 3600 / 60)).padStart(s >= 3600 ? 2 : 1, "0") + ":" + String(s % 60).padStart(2, "0"); }
 function fmtDur(sec) { if (!sec) return ""; const m = Math.round(sec / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; }
 function countDeep(n, kind) { let c = 0; const w = (x) => { kids(x).forEach((k) => { if (k.kind === kind) c++; w(k); }); }; w(n); return c; }
 function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
@@ -388,9 +389,10 @@ function noteDialog(parent) {
 function lectureDialog(parent) {
   if (window.LumenPanopto) return window.LumenPanopto.open(parent);
   dialog(`<h3>Add a lecture${parent.kind !== "inbox" ? ` to “${h(parent.title)}”` : ""}</h3>
-    <p style="font-size:14px;color:var(--muted)">From Panopto, the easiest way is to give the link to Claude in this desktop app, which fetches the recording and slide timings for you. Or upload a recording here.</p>
+    <p style="font-size:14px;color:var(--muted)">Recordings are transcribed locally on this Mac with Whisper. Upload an audio/video file and optionally a PDF of the slides. A Panopto link adds playback shortcuts; it does not fetch the recording.</p>
     <label>Title</label><input type="text" name="title" required placeholder="e.g. Lecture 04 – Data screening">
     <label>Panopto link (optional, for jump-to-moment links)</label><input type="url" name="panopto_url" placeholder="https://…panopto.eu/…">
+    <label>Recording language</label><select name="language"><option value="">Detect automatically</option><option value="en">English</option><option value="ar">Arabic</option><option value="fr">French</option><option value="es">Spanish</option><option value="de">German</option><option value="ru">Russian</option></select>
     <label>Recording (audio or video)</label><input type="file" name="audio" required accept="audio/*,video/*">
     <label>Slides (PDF, optional)</label><input type="file" name="slides" accept="application/pdf">
     <div class="actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button type="submit" class="btn primary">Add and transcribe</button></div>`,
@@ -405,7 +407,7 @@ function lectureDialog(parent) {
 // ------------------------------------------------------------------ rich content (maths, charts, interactive explainers)
 let plotlyLoading;
 function loadPlotly() {
-  plotlyLoading ||= new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"; s.onload = res; s.onerror = rej; document.head.append(s); });
+  plotlyLoading ||= new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"; s.onload = res; s.onerror = () => { plotlyLoading = null; s.remove(); rej(new Error("Chart library unavailable")); }; document.head.append(s); });
   return plotlyLoading;
 }
 function themeVars() { const cs = getComputedStyle(document.documentElement); return Object.fromEntries(["--ink", "--ink-2", "--muted", "--line", "--panel", "--bg", "--accent", "--mark"].map((k) => [k, cs.getPropertyValue(k).trim()])); }
@@ -443,7 +445,8 @@ async function enhance(root) {
 // "Check my understanding" quizzes: ```quiz {"title": "...", "questions": [{"q": "...", "options": [...], "answer": 0, "why": "..."}]}
 function renderQuiz(code) {
   let spec; try { spec = JSON.parse(code.textContent); } catch { return; }
-  const qs = spec.questions || [];
+  const qs = spec?.questions;
+  if (!Array.isArray(qs) || !qs.length || qs.some(q => !q || typeof q.q !== "string" || !Array.isArray(q.options) || q.options.length < 2 || !Number.isInteger(q.answer) || q.answer < 0 || q.answer >= q.options.length)) return;
   const box = document.createElement("div"); box.className = "quiz";
   let i = 0, score = 0;
   const draw = () => {
@@ -632,6 +635,7 @@ function itemHTML(n) {
   return `<div class="item" data-id="${n.id}"><span class="t">${h(n.title)}</span><span class="m">${h(meta)}</span><button class="icon-btn more" data-more>${ICONS.more}</button></div>`;
 }
 function statusLabel(n) {
+  if (n.status === "complete" && n.generated_source === "extractive") return "Draft outline ready";
   return { processing: "Processing…", queued: "Queued", transcribing: "Transcribing…", transcribed: "Transcribed", complete: "Study pack ready", error: "Error" }[n.status] || "";
 }
 function wireItems(root, parentId = null) {
@@ -702,16 +706,22 @@ async function pageLecture(id, tab, isCurrent = () => true) {
       ${m.slide_count ? `<span>${m.slide_count} slides</span>` : ""}
       <span class="chip ${m.status === "complete" ? "ok" : busy ? "warn" : ""}">${statusLabel(m) || "New"}</span>
       ${m.panopto_url ? `<a class="btn ghost" href="${h(m.panopto_url)}" target="_blank" rel="noopener">Open in Panopto ${ICONS.ext}</a>` : ""}
-      ${window.LumenPanopto && m.source === "panopto-captions" ? `<button class="btn ghost" id="edit-captions">Review captions</button>` : ""}
+      ${window.LumenPanopto && m.segments?.length ? `<button class="btn ghost" id="edit-captions">${m.caption_reviewed ? "Captions reviewed" : "Review captions"}</button>` : ""}
+      ${window.LumenCloud ? `<button class="btn ghost" id="copy-lecture-source">Copy lecture source</button><button class="btn ghost" id="add-study-material">Add study material</button>` : ""}
       <button class="icon-btn" id="lmore">${ICONS.more}</button>
     </div>
-    ${busy ? `<div class="empty"><h3>Transcribing on your Mac…</h3><p>Whisper is listening to the recording. A 45-minute lecture takes roughly 5 to 10 minutes. This page updates itself.</p></div>` : `
+    ${window.LumenCloud && m.generated_source === "extractive" ? `<div class="study-notice" role="status"><strong>Draft study outline.</strong> Prepared from imported captions, not an AI analysis. ${m.caption_reviewed ? "Captions marked reviewed." : "Review technical terms against the recording or slides."}</div>` : ""}
+    ${m.materials_stale ? `<div class="study-notice" role="status"><strong>Source updated.</strong> Your existing study materials were kept. Review them against the corrected transcript.</div>` : ""}
+    ${m.status === "error" ? `<div class="study-notice" role="alert"><strong>Transcription did not finish.</strong> ${h(m.error || "Check the recording and your local transcription setup.")}</div>` : ""}
+    ${busy ? `<div class="empty"><h3>${m.status === "queued" ? "Queued on your Mac…" : "Transcribing on your Mac…"}</h3><p>Processing time depends on the recording, model, and Mac. Keep the local app running; this page checks for progress.</p></div>` : `
     <div class="tabs">${tabs.map(([k, l, c]) => `<button class="tab ${k === tab ? "on" : ""}" data-t="${k}">${h(l)}${c ? `<span class="n">${c}</span>` : ""}</button>`).join("")}</div>
     <div id="tabbody"></div>`}
   </div>${d.has_audio && !busy ? `<div class="player"><audio id="aud" controls preload="metadata" src="/api/lectures/${id}/audio"></audio><span class="now-t" id="nowt"></span></div>` : ""}`;
   $("#ttl").onclick = () => renameDialog(NODES.get(id) || { id, title: m.title });
   $("#lmore").onclick = (e) => openMenu(e, NODES.get(id) || { id, title: m.title, kind: "lecture" });
   if ($("#edit-captions")) $("#edit-captions").onclick = () => window.LumenPanopto.edit(id);
+  if ($("#copy-lecture-source")) $("#copy-lecture-source").onclick = () => copyLectureSource(d);
+  if ($("#add-study-material")) $("#add-study-material").onclick = () => preparedMaterialDialog(id);
   if (busy) { poll = setInterval(async () => { const j = await api("GET", "/api/lectures/" + id); if (!isCurrent()) return; if (!["processing", "queued", "transcribing"].includes(j.meta.status)) { clearInterval(poll); await refresh(); } }, 5000); return; }
   $$(".tab").forEach((b) => b.onclick = () => {
     const nextHash = `#/lecture/${id}/${b.dataset.t}`;
@@ -721,8 +731,32 @@ async function pageLecture(id, tab, isCurrent = () => true) {
   pageLectureTab(id, tab);
   wireAudio();
 }
+async function copyLectureSource(lecture) {
+  const lines = ["# " + lecture.meta.title, "", "Lecture source only. Use this source for explanations, cite its slide/part labels, and distinguish added information from the lecture. Do not invent references.", ""];
+  for (const chunk of lecture.chunks || []) {
+    lines.push("## " + (chunk.page ? "Slide " + chunk.page + (chunk.approximate ? " (approximate alignment)" : "") + ": " : "") + chunk.title);
+    if (chunk.slide_text) lines.push("Slide text: " + chunk.slide_text);
+    for (const segment of chunk.said || []) lines.push((segment.untimed || lecture.meta.timed_captions === false ? "" : "[" + fmtTime(segment.start) + "] ") + segment.text);
+    lines.push("");
+  }
+  const source = lines.join("\n");
+  try { if (!navigator.clipboard?.writeText) throw Error("Clipboard unavailable"); await navigator.clipboard.writeText(source); toast("Lecture source copied. Paste it with your request into your assistant."); }
+  catch {
+    const link = document.createElement("a"), url = URL.createObjectURL(new Blob([source], {type:"text/plain;charset=utf-8"}));
+    link.href = url; link.download = "lumen-lecture-source.txt"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Clipboard unavailable. Downloaded the lecture source instead.");
+  }
+}
+function preparedMaterialDialog(id) {
+  dialog(`<h3>Add prepared study material</h3><p>Paste material you prepared or reviewed with an assistant. Lumen saves it to this lecture; it does not run an AI request here. Saving a study pack, cards, or resources replaces that type's current version; explanations are added separately. Your own notes stay separate.</p>
+    <label>Material type</label><select name="kind"><option value="study-pack">Study pack</option><option value="flashcards">Flashcards (Q: / A:)</option><option value="explanation">Explanation</option><option value="resources">Verified resources</option></select>
+    <label>Content (Markdown)</label><textarea name="body" rows="12" required placeholder="Paste your prepared material here"></textarea>
+    <div class="actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button type="submit" class="btn primary">Save material</button></div>`,
+    async (form) => { await api("PUT", `/api/lectures/${id}/materials`, {kind:form.kind.value, body:form.body.value}); await refresh(); });
+}
 function emptyAsk(what, prompt) {
-  return `<div class="empty"><h3>No ${what} yet</h3><p>Ask any connected AI assistant (Claude or ChatGPT) to create it from this lecture:</p>
+  const hosted = Boolean(window.LumenCloud);
+  return `<div class="empty"><h3>No ${what} yet</h3><p>${hosted ? "Automatic AI generation is not connected in this edition. Use Copy lecture source, work with your assistant, then Add study material to save the result here." : "Ask your connected Mac AI assistant to create it from this lecture:"}</p>
     <code>${h(prompt)}</code><br><br><button class="btn" data-copy="${h(prompt)}">Copy prompt</button></div>`;
 }
 function pageLectureTab(id, tab) {
@@ -735,35 +769,38 @@ function pageLectureTab(id, tab) {
     body.innerHTML = ks.length ? ks.map((k) => `<div class="prose">${gen[k]}</div><hr>`).join("") : emptyAsk("explanations", `Explain the hardest idea in my lecture “${t}” simply, with an interactive graph, and save it to Lumen.`);
   } else if (tab.startsWith("g:")) body.innerHTML = `<div class="prose">${gen[tab.slice(2)]}</div>`;
   else if (tab === "cards") body.innerHTML = renderCards(d.generated["flashcards.md"]) || emptyAsk("flashcards", `Make flashcards for my lecture “${t}” in Lumen.`);
-  else if (tab === "notes") return renderEditor(body, d.my_notes, async (text, expectedBody) => { const r = await api("PUT", `/api/lectures/${id}/notes`, { body: text, expectedBody }); d.my_notes = text; return r; }, "Write your own notes. AI assistants can read these but never overwrite them.");
+  else if (tab === "notes") return renderEditor(body, d.my_notes, async (text, expectedBody) => { const r = await api("PUT", `/api/lectures/${id}/notes`, { body: text, expectedBody }); d.my_notes = text; return r; }, "Write your own notes. They stay separate from prepared study materials.");
   else if (tab === "slides") renderSlides(body, id);
-  $$("[data-copy]", body).forEach((b) => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); toast("Prompt copied"); });
-  $$(".flash-card", body).forEach((c) => c.onclick = () => c.classList.toggle("flip"));
+  $$("[data-copy]", body).forEach((b) => b.onclick = async () => { try { if (!navigator.clipboard?.writeText) throw Error("Clipboard unavailable"); await navigator.clipboard.writeText(b.dataset.copy); toast("Prompt copied"); } catch { toast("Clipboard unavailable. Select the prompt above and copy it."); } });
+  $$(".flash-card", body).forEach((c) => {
+    const flip = () => { const on = c.classList.toggle("flip"); c.setAttribute("aria-pressed", String(on)); c.setAttribute("aria-label", on ? "Show question" : "Reveal answer"); c.querySelector(".front").setAttribute("aria-hidden", String(on)); c.querySelector(".back").setAttribute("aria-hidden", String(!on)); };
+    c.onclick = flip; c.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } };
+  });
   enhance(body);
 }
 function renderCards(md) {
   if (!md) return "";
   const cards = []; let cur = null;
   for (const line of md.split("\n")) {
-    const q = line.match(/^\s*(?:[-*]\s*)?\**Q:?\**:?\s*(.*)$/i), a = line.match(/^\s*(?:[-*]\s*)?\**A:?\**:?\s*(.*)$/i);
+    const q = line.match(/^\s*(?:[-*]\s*)?(?:\*\*)?Q(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+)$/i), a = line.match(/^\s*(?:[-*]\s*)?(?:\*\*)?A(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+)$/i);
     if (q && /^\s*(?:[-*]\s*)?\**Q/i.test(line)) { cur = { q: q[1], a: "" }; cards.push(cur); }
     else if (a && cur && /^\s*(?:[-*]\s*)?\**A/i.test(line)) cur.a = a[1];
     else if (cur && line.trim() && !line.startsWith("#")) { if (cur.a) cur.a += " " + line.trim(); else cur.q += " " + line.trim(); }
   }
   if (!cards.length) return "";
   return `<p style="color:var(--muted);margin-top:-8px">${cards.length} cards · click a card to flip it. Spaced-repetition review comes in the next stage.</p>
-    <div class="cards">${cards.map((c) => `<div class="flash-card"><div class="in"><div class="face front"><small>Question</small><div>${h(c.q)}</div></div><div class="face back"><small>Answer</small><div>${h(c.a)}</div></div></div></div>`).join("")}</div>`;
+    <div class="cards">${cards.map((c) => `<div class="flash-card" role="button" tabindex="0" aria-label="Reveal answer" aria-pressed="false"><div class="in"><div class="face front" aria-hidden="false"><small>Question</small><div>${h(c.q)}</div></div><div class="face back" aria-hidden="true"><small>Answer</small><div>${h(c.a)}</div></div></div></div>`).join("")}</div>`;
 }
 function renderSlides(body, id) {
   const d = LECTURE;
   if (!d.chunks.length) { body.innerHTML = `<div class="empty"><h3>No transcript yet</h3></div>`; return; }
-  body.innerHTML = `<p style="color:var(--muted);margin-top:-8px">${window.LumenPanopto ? "Caption text is grouped with slide text. Slide timing is estimated, not verified against Panopto slide events. Select Review captions to correct mistakes." : `Each slide sits next to what was said while it was on screen. Click a time or any sentence to listen from that moment${d.meta.panopto_url ? ", or ↗ to open Panopto there" : ""}.`}</p>
+  body.innerHTML = `<p style="color:var(--muted);margin-top:-8px">${window.LumenPanopto ? "Caption text is grouped into parts or approximate slide sections. Review captions to correct terms. Untimed transcripts do not provide accurate playback timestamps." : `Each slide sits next to what was said while it was on screen. Click a time or any sentence to listen from that moment${d.meta.panopto_url ? ", or ↗ to open Panopto there" : ""}.`}</p>
   <div class="slides">${d.chunks.map((c) => `
     <div class="chunk" id="chunk-${c.n}" data-start="${c.start}" data-end="${c.end}">
       <div>${c.page ? (window.LumenPanopto ? `<div class="ghost-slide"><div><b>${h(c.title)}</b><p>${h((c.slide_text || "").slice(0,500))}</p></div></div>` : `<img loading="lazy" src="/api/lectures/${id}/slides/${c.page}.png" alt="Slide ${c.page}">`)
-        : `<div class="ghost-slide"><div><b>${h(c.title)}</b>${c.not_in_pdf ? "Shown in the lecture, but not in your PDF slides" : "Before the slides"}</div></div>`}</div>
+        : `<div class="ghost-slide"><div><b>${h(c.title)}</b>${c.not_in_pdf ? "Shown in the lecture, but not in your PDF slides" : window.LumenPanopto ? "Transcript part" : "Before the slides"}</div></div>`}</div>
       <div><div class="head"><span class="t">${c.page ? `<span style="color:var(--muted);font-weight:400">${c.page}.</span> ` : ""}${h(c.title)}</span>
-        <button class="time" data-seek="${c.start}">${ICONS.play} ${c.time}</button>${c.link ? `<a class="time" href="${h(c.link)}" target="_blank" rel="noopener" title="Open in Panopto at this moment">↗</a>` : ""}</div>
+        <button class="time" data-seek="${c.start}" ${window.LumenCloud && !c.link ? "disabled" : ""}>${ICONS.play} ${c.time}</button>${c.link ? `<a class="time" href="${h(c.link)}" target="_blank" rel="noopener" title="Open in Panopto at this moment">↗</a>` : ""}</div>
         <div class="said">${c.said.length ? c.said.map((s) => `<span data-seek="${s.start}" data-s="${s.id}">${h(s.text)}</span> `).join("") : '<span class="none">No speech while this slide was shown.</span>'}</div></div>
     </div>`).join("")}</div>
   ${d.pages_not_shown?.length ? `<h2 class="sec">In your PDF but not shown in the recording</h2><p style="color:var(--muted)">Slides ${d.pages_not_shown.join(", ")}. These were probably merged or skipped in the version presented.</p>
@@ -827,7 +864,7 @@ function renderEditor(body, text, save, hint) {
       const result = await save(sent, editor.savedText);
       editor.savedText = sent;
       button.textContent = ed.value === sent ? "Saved" : "Save •";
-      toast(result?.conflictPreserved ? "Saved. The other device’s version is kept as a conflict copy." : "Saved (versioned, you can always go back)");
+      toast(result?.conflictPreserved ? "Saved. The other device’s version is kept as a conflict copy." : (window.LumenCloud ? "Saved on this device. Automatic sync resumes when online." : "Saved in your local vault."));
     } catch (error) {
       button.textContent = "Save •";
       console.error("Could not save note", error);
@@ -868,6 +905,7 @@ async function pageSearch(q, isCurrent = () => true) {
   $$("#res .r").forEach((el) => el.onclick = () => {
     const r = rs[+el.dataset.i], n = NODES.get(r.id);
     if (r.chunk) go(`#/lecture/${r.id}/slides?chunk=${r.chunk}`);
+    else if (r.part?.startsWith("Source")) go(`#/lecture/${r.id}/slides`);
     else if (r.part?.startsWith("My Notes")) go(`#/lecture/${r.id}/notes`);
     else if (r.part?.startsWith("Generated")) go(`#/lecture/${r.id}/pack`);
     else go(hrefFor(n || { id: r.id, kind: "note" }));
@@ -877,7 +915,7 @@ async function pageHistory(isCurrent = () => true) {
   const rows = await api("GET", "/api/history");
   if (!isCurrent()) return;
   main().innerHTML = `<div class="page"><h1 class="title">History</h1>
-    <div class="sub">Every change is saved as a version in your vault, so nothing is ever lost.</div>
+    <div class="sub">${window.LumenCloud ? "Recent changes on this device (up to 30). Library sync shares the current version; this history is not a backup." : "Changes are versioned in your local vault. Keep independent backups of important work."}</div>
     <div class="toolbar"><button class="btn" id="undo">Undo the latest change</button></div>
     <div class="hist">${rows.map((r) => `<div class="h"><time>${new Date(r.date).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</time><span>${h(r.message)}</span></div>`).join("")}</div></div>`;
   $("#undo").onclick = async () => { const r = await api("POST", "/api/undo"); toast(`Undone: ${r.undone}`); await refresh(); };

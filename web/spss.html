@@ -21,6 +21,7 @@
  <div class="navtitle">Your progress</div>
  <div class="progress"><div id="progressbar"></div></div>
  <small class="muted" id="progresslabel">0 lessons completed</small>
+ <small class="muted" id="progress-storage" role="status">Progress is saved on this browser only.</small>
 </aside>
 <main class="main">
  <div class="hero"><div class="eyebrow">PSYC1142 · Interactive learning space</div><h1>SPSS Studio<span style="color:var(--orange)">.</span></h1><p class="lead">Understand the question first. See the relationships. Explore the evidence. Use SPSS with confidence. Learn the mathematics only when the concepts make sense.</p>
@@ -44,10 +45,11 @@ const lessons=[
  ["SPSS workflow","Run, read and report the analysis"],
  ["Connections","Transfer, retrieval and future mathematical reasoning"]
 ];
-let current=Math.max(0,Math.min(lessons.length-1,+(new URLSearchParams(location.search).get("lesson")||0)));
-let done={};try{done=JSON.parse(localStorage.getItem("lumen.spss.done")||"{}")}catch{}
+const lessonIndex=value=>{const n=Number(value);return Number.isFinite(n)?Math.max(0,Math.min(lessons.length-1,Math.trunc(n))):0};
+let current=lessonIndex(new URLSearchParams(location.search).get("lesson"));
+let done={};try{const saved=JSON.parse(localStorage.getItem("lumen.spss.done")||"{}");if(saved&&typeof saved==="object")for(let i=0;i<lessons.length;i++)if(saved[i]===true)done[i]=true}catch{}
 function nav(){ $("#nav").innerHTML=lessons.map((l,i)=>'<button class="navbtn '+(i===current?'active ':'')+(done[i]?'done':'')+'" data-go="'+i+'"><span>'+String(i+1).padStart(2,"0")+'</span>'+l[0]+'</button>').join("");document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>go(+b.dataset.go));let n=Object.keys(done).filter(k=>done[k]).length;$("#progressbar").style.width=(100*n/lessons.length)+"%";$("#progresslabel").textContent=n+" / "+lessons.length+" lessons marked learned"}
-function go(n){current=Math.max(0,Math.min(lessons.length-1,n));history.replaceState(null,"","?lesson="+current);render();window.scrollTo(0,0)}
+function go(n){current=lessonIndex(n);history.replaceState(null,"","?lesson="+current);render();window.scrollTo(0,0)}
 const intro=(eyebrow,title,lead)=>'<div class="eyebrow">'+eyebrow+'</div><h2>'+title+'</h2><p class="lead">'+lead+'</p>';
 const call=s=>'<div class="callout"><strong>Remember.</strong> '+s+'</div>';
 const source=s=>'<div class="sources"><strong>Source alignment:</strong> '+s+' · Source: University of Greenwich PSYC1142 One-way ANOVA lecture slides and accompanying lecture transcript. Additional examples and interactive simulations are teaching illustrations, not experimental findings.</div>';
@@ -89,5 +91,5 @@ const chapters=[
 '<div class="card"><h3>Explain these in your own words</h3><div class="step">Why can two studies with identical group means produce different F-statistics?</div><div class="step">What is the difference between an observed correlation and statistical significance?</div><div class="step">Why can a statistically significant ANOVA fail to establish causation?</div><div class="step">Why might a very small study give an uncertain answer?</div><div class="step">Why does the overall ANOVA not identify which pairs differ?</div></div><div class="card"><h3>Next mathematical layer (when you’re ready)</h3><p>We will connect the words you’ve already learned to <strong>sum of squares (SS)</strong>, <strong>degrees of freedom (df)</strong>, <strong>mean square (MS)</strong> and <strong>F</strong>, then reproduce the lecture’s actual ANOVA table. No blind formula memorisation.</p><div class="math">Total SS = Between-groups SS + Within-groups SS</div><div class="math">F = MS between / MS within</div></div>'+call("Understand first. Retrieve and apply throughout. Calculate by hand when the logic feels familiar.")+quiz("connections",QUIZZES.connections)+source("Slides 17–48; the consolidation sequence is customised teaching material.")
 ];
 function render(){nav();$("#lesson").innerHTML=chapters[current]();$("#prev").disabled=current===0;$("#next").disabled=current===lessons.length-1;$("#complete").textContent=done[current]?"Learned ✓ (undo)":"Mark learned ✓";wireQuiz();if(current===3){let slider=$("#p"),upd=()=>{let v=+slider.value;$("#pvalue").textContent=v.toFixed(3);$("#pdot").setAttribute("cx",30+v/.15*600);$("#pdecision").innerHTML=v<=.05?'<span class="good">At α = .05: reject H₀ (statistically significant).</span>':'<span class="muted">At α = .05: fail to reject H₀ (not statistically significant).</span>'};slider.oninput=upd;upd()}if(current===4){let slider=$("#spread"),upd=()=>{let v=+slider.value;$("#spreadlabel").textContent=v+" points";$("#spreadplot").innerHTML=ssvg([55,70,85].map(m=>[-1,-.5,0,.5,1].map(z=>m+v*z)),30,110);$("#spreadinterpret").textContent=v<=5?"Group means are clearly separated relative to within-group spread.":v<=12?"Some overlap appears even though the means are unchanged.":"Strong overlap: mean differences are less convincing relative to the spread."};slider.oninput=upd;upd()}}
-$("#prev").onclick=()=>go(current-1);$("#next").onclick=()=>go(current+1);$("#complete").onclick=()=>{done[current]=!done[current];localStorage.setItem("lumen.spss.done",JSON.stringify(done));render()};render();
+$("#prev").onclick=()=>go(current-1);$("#next").onclick=()=>go(current+1);$("#complete").onclick=()=>{done[current]=!done[current];try{localStorage.setItem("lumen.spss.done",JSON.stringify(done))}catch{$("#progress-storage").textContent="Browser storage is unavailable. Progress lasts only while this page is open."}render()};render();
 </script></body></html>

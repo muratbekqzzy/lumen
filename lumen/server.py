@@ -23,6 +23,7 @@ md = MarkdownIt("commonmark", {"html": False, "linkify": False, "typographer": F
 
 app = FastAPI(title="Lumen")
 JOBS: dict[str, dict] = {}
+TRANSCRIPTION_LOCK = threading.Lock()
 
 
 @app.middleware("http")
@@ -219,7 +220,7 @@ def lecture_audio(lecture_id: str):
 
 @app.post("/api/lectures")
 async def add_lecture(parent_id: str = Form("inbox"), title: str = Form(...), panopto_url: str = Form(""),
-                      lecturer: str = Form(""), date: str = Form(""),
+                      lecturer: str = Form(""), date: str = Form(""), language: str = Form(""),
                       audio: UploadFile = File(...), slides: UploadFile | None = File(None)):
     tmp = Path(tempfile.mkdtemp(prefix="lumen-"))
     a = tmp / ("recording" + Path(audio.filename or "a.m4a").suffix)
@@ -237,9 +238,10 @@ async def add_lecture(parent_id: str = Form("inbox"), title: str = Form(...), pa
 
     def run():
         try:
-            JOBS[lid]["status"] = "running"
-            lectures.ingest(parent_id, title, slides=s, audio=a, panopto_url=panopto_url, lecture_id=lid,
-                            log=lambda m: JOBS[lid]["log"].append(m))
+            with TRANSCRIPTION_LOCK:
+                JOBS[lid]["status"] = "running"
+                lectures.ingest(parent_id, title, slides=s, audio=a, panopto_url=panopto_url, lecture_id=lid, language=language or None,
+                                log=lambda m: JOBS[lid]["log"].append(m))
             JOBS[lid]["status"] = "done"
         except Exception as e:  # keep the error visible in the app
             JOBS[lid].update(status="error", error=str(e), trace=traceback.format_exc())

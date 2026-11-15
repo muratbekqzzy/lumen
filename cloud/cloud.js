@@ -13,14 +13,28 @@ try{localStorage.removeItem("lumen.cloud.auth.v1");localStorage.removeItem("lume
 let db=load(DATA,base()),history=load(HISTORY,[]),busy=false,lastError="",lastSuccess=0;
 const openedVersions=new Map();
 let resolveReady;const whenReady=new Promise(resolve=>{resolveReady=resolve});
-const save=()=>{try{localStorage.setItem(DATA,JSON.stringify(db));window.dispatchEvent(new Event("lumen-changed"));queueSync()}catch(e){alert("Storage is full. Export a backup before continuing.");throw e}};
-const snapshot=message=>{history.push({date:new Date().toISOString(),message,db:copy(db)});if(history.length>30)history.shift();try{localStorage.setItem(HISTORY,JSON.stringify(history))}catch{}};
+function persistHistory(){
+ // Keep undo records proportional to the changed items, not thirty complete vault copies.
+ for(const entry of history)if(entry.changed&&entry.db){entry.db={version:1,records:Object.fromEntries(entry.changed.filter(key=>entry.db.records[key]).map(key=>[key,entry.db.records[key]])),deleted:{}}}
+ while(history.length&&JSON.stringify(history).length>1024*1024)history.shift();
+ for(;;){try{localStorage.setItem(HISTORY,JSON.stringify(history));return}catch{if(history.length){history.shift();continue}try{localStorage.removeItem(HISTORY)}catch{}return}}
+}
+const save=()=>{
+ try{localStorage.setItem(DATA,JSON.stringify(db))}
+ catch(error){
+  // Undo history must never prevent saving the current library.
+  history=[];persistHistory();
+  try{localStorage.setItem(DATA,JSON.stringify(db))}catch{alert("Storage is full. Export a backup before continuing.");throw error}
+ }
+ window.dispatchEvent(new Event("lumen-changed"));queueSync();
+};
+const snapshot=(message,before)=>{history.push({date:new Date().toISOString(),message,db:before});if(history.length>30)history.shift()};
 const mod=(message,fn)=>{
  const before=copy(db),beforeHistory=copy(history);
- try{snapshot(message);const result=fn(),entry=history[history.length-1];
-  entry.changed=[...new Set([...Object.keys(before.records),...Object.keys(db.records),...Object.keys(before.deleted),...Object.keys(db.deleted)])].filter(key=>signature(before,key)!==signature(db,key));
+ try{snapshot(message,before);const result=fn(),entry=history[history.length-1];
+  entry.changed=[...new Set([...Object.keys(before.records),...Object.keys(db.records),...Object.keys(before.deleted),...Object.keys(db.deleted)])].filter(key=>JSON.stringify(before.records[key])!==JSON.stringify(db.records[key])||before.deleted[key]!==db.deleted[key]);
   entry.after=Object.fromEntries(entry.changed.map(key=>[key,signature(db,key)]));
-  localStorage.setItem(HISTORY,JSON.stringify(history));save();return result;
+  persistHistory();save();return result;
  }catch(e){db=before;history=beforeHistory;try{localStorage.setItem(HISTORY,JSON.stringify(history))}catch{}throw e}
 };
 const get=i=>db.records[i]&&!db.deleted[i]?db.records[i]:null;
@@ -31,14 +45,50 @@ const asTree=(node)=>({...node,children:(node.kind==="lecture"?[]:kids(node.id).
 const tree=()=>({...asTree(requireNode("root")),inbox:asTree(requireNode("inbox")),archive:asTree(requireNode("archive"))});
 const breadcrumbs=node=>{let out=[];let n=node;while(n&&n.id!=="root"&&n.id!=="inbox"&&n.id!=="archive"){out.unshift({id:n.id,title:n.title,kind:n.kind});n=get(n.parent)}return out};
 const escap=s=>String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-const md=s=>{let src=escap(s||"");src=src.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(_,a,b)=>`[${b||a}](#/concept/${encodeURIComponent(a)})`);
- src=src.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|#\/[^)]+)\)/g,(_,t,u)=>`<a href="${u}" ${u.startsWith("http")?'target="_blank" rel="noopener noreferrer"':""}>${t}</a>`);
- src=src.replace(/^### (.+)$/gm,"<h3>$1</h3>").replace(/^## (.+)$/gm,"<h2>$1</h2>").replace(/^# (.+)$/gm,"<h1>$1</h1>").replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\*(.*?)\*/g,"<em>$1</em>").replace(/\n/g,"<br>");return src};
+const md=s=>window.LumenMarkdown?window.LumenMarkdown.render(s):"<p>"+escap(s||"").replace(/\n/g,"<br>")+"</p>";
 const desc=n=>({...n,description_html:md(n.description||""),breadcrumbs:breadcrumbs(n)});
-const graph=()=>{let nodes=[],edges=[],titles=new Map(),concepts=new Map();for(const n of Object.values(db.records)){if(db.deleted[n.id]||["root","inbox","archive"].includes(n.id))continue;nodes.push({id:n.id,kind:n.kind,title:n.title,section:sectionOf(n),color:n.color||"",icon:n.icon||""});titles.set(n.title.trim().toLowerCase(),n.id);if(n.parent&&!["root","inbox","archive"].includes(n.parent))edges.push({source:n.parent,target:n.id,type:"contains"})}
-for(const n of Object.values(db.records)){if(db.deleted[n.id])continue;const text=(n.body||"")+"\n"+(n.description||"");for(const m of text.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)){const name=m[1].trim(),key=name.toLowerCase();let target=titles.get(key)||"c:"+key;if(!titles.has(key)&&!concepts.has(key)){concepts.set(key,target);nodes.push({id:target,kind:"concept",title:name,section:null,color:"",icon:""})}if(target!==n.id&&!edges.some(e=>e.source===n.id&&e.target===target))edges.push({source:n.id,target,type:"mentions"})}}
-for(const n of nodes){n.degree=edges.filter(e=>e.source===n.id||e.target===n.id).length;if(n.kind==="concept"){const sections=new Set(edges.filter(e=>e.target===n.id).map(e=>nodes.find(x=>x.id===e.source)?.section).filter(Boolean));n.bridges=sections.size}}
-return {nodes,edges}};
+const withoutCode=s=>String(s||"").replace(/```[\s\S]*?```|`[^`\n]*`/g," ");
+const linksOf=s=>[...withoutCode(s).matchAll(/\[\[([^\]|\n]+)(?:\|[^\]\n]+)?\]\]/g)].map(m=>m[1].trim()).filter(Boolean);
+const partsOf=n=>{
+ const out=[{part:n.kind==="lecture"?"My Notes/notes.md":"note",text:String(n.body||"")},{part:"description",text:String(n.description||"")}];
+ if(n.kind==="lecture"){
+  for(const [name,text] of Object.entries(n.generated||{}))out.push({part:"Generated/"+name,text:String(text)});
+  const segments=new Map((n.segments||[]).map(segment=>[segment.id,segment]));
+  if(n.chunks?.length)for(const c of n.chunks)out.push({part:"Source/transcript",chunk:c.n,text:[c.slide_text||"",...(c.segmentIds||[]).map(key=>segments.get(key)?.text||"")].join("\n")});
+  else out.push({part:"Source/transcript",text:[...segments.values()].map(x=>x.text).join(" ")});
+ }
+ return out.filter(x=>x.text.trim());
+};
+const archived=n=>{const seen=new Set();let current=n;while(current&&!seen.has(current.id)){if(current.id==="archive")return true;seen.add(current.id);current=get(current.parent)}return false};
+const graph=()=>{
+ const nodes=[],edges=[],titles=new Map(),concepts=new Map(),edgeIds=new Set();
+ const active=Object.values(db.records).filter(n=>!db.deleted[n.id]&&!["root","inbox","archive"].includes(n.id)&&!archived(n));
+ for(const n of active){nodes.push({id:n.id,kind:n.kind,title:n.title,section:sectionOf(n),color:n.color||"",icon:n.icon||""});titles.set(n.title.trim().toLowerCase(),n.id);if(n.parent&&!["root","inbox","archive"].includes(n.parent))edges.push({source:n.parent,target:n.id,type:"contains"})}
+ for(const n of active)for(const part of partsOf(n))for(const name of linksOf(part.text)){
+  const key=name.toLowerCase(),target=titles.get(key)||"c:"+key,edge=n.id+"\n"+target;
+  if(!titles.has(key)&&!concepts.has(key)){concepts.set(key,target);nodes.push({id:target,kind:"concept",title:name,section:null,color:"",icon:""})}
+  if(target!==n.id&&!edgeIds.has(edge)){edgeIds.add(edge);edges.push({source:n.id,target,type:"mentions"})}
+ }
+ const nodeMap=new Map(nodes.map(n=>[n.id,n])),degrees=new Map(),sections=new Map();
+ for(const e of edges){degrees.set(e.source,(degrees.get(e.source)||0)+1);degrees.set(e.target,(degrees.get(e.target)||0)+1);const section=nodeMap.get(e.source)?.section;if(section){if(!sections.has(e.target))sections.set(e.target,new Set());sections.get(e.target).add(section)}}
+ for(const n of nodes){n.degree=degrees.get(n.id)||0;if(n.kind==="concept")n.bridges=sections.get(n.id)?.size||0}
+ return {nodes,edges};
+};
+const validateSegments=segments=>{
+ if(!Array.isArray(segments)||!segments.length)throw Error("Transcript is empty");if(segments.length>50000)throw Error("This transcript has too many segments");
+ const seen=new Set();
+ for(const x of segments){if(!x||!Number.isInteger(x.id)||x.id<0||seen.has(x.id)||!Number.isFinite(x.start)||!Number.isFinite(x.end)||x.start<0||x.end<x.start||typeof x.text!=="string"||!x.text.trim())throw Error("Transcript contains invalid or duplicate segments");seen.add(x.id)}
+ return segments.map(x=>({...x,text:x.text.trim()})).sort((a,b)=>a.start-b.start||a.id-b.id);
+};
+const lectureUrl=(raw,seconds)=>{try{const u=new URL(raw);if(u.protocol!=="https:"||u.username||u.password)return "";if(seconds!==undefined)u.searchParams.set("start",String(Math.max(0,Math.floor(seconds))));return u.href}catch{return ""}};
+function lectureBundle(n){
+ openedVersions.set(n.id,fingerprint(n));
+ const generated=n.generated||{},segments=n.segments||[],byId=new Map(segments.map(x=>[x.id,x]));
+ const timed=n.timed_captions!==false&&!segments.some(x=>x.untimed);
+ const duration=segments.reduce((end,x)=>Math.max(end,x.end||0),0);
+ const chunks=n.chunks?.length?n.chunks:segments.length?[{n:1,page:null,title:"Transcript",start:0,end:duration,segmentIds:segments.map(x=>x.id)}]:[];
+ return {meta:n,chunks:chunks.map(c=>({...c,said:(c.segmentIds||[]).map(key=>byId.get(key)).filter(Boolean),link:timed?lectureUrl(n.panopto_url,c.start):"",time:timed?((c.approximate?"≈ ":"")+Math.floor(c.start/60)+":"+String(Math.floor(c.start%60)).padStart(2,"0")):"Segment "+c.n})),pages_not_shown:[],generated,generated_html:Object.fromEntries(Object.entries(generated).map(([k,v])=>[k,md(v)])),my_notes:n.body||"",my_notes_html:md(n.body),has_audio:false,breadcrumbs:breadcrumbs(n)};
+}
 const sectionOf=n=>{let p=n;for(let i=0;i<40&&p;i++){if(p.kind==="section")return p.id;p=get(p.parent)}return null};
 const result=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json"}});
 const words=x=>String(x||"").toLowerCase().split(/\s+/).filter(Boolean);
@@ -58,13 +108,45 @@ if(method==="POST"&&p==="/api/archive")return mod("Archive item",()=>{let n=requ
 if(method==="POST"&&p==="/api/restore")return mod("Restore item",()=>{let n=requireNode(body.id);n.parent=get(n.previousParent)?n.previousParent:"inbox";touch(n);return {ok:true}});
 if(method==="GET"&&v==="node")return desc(requireNode(oid));
 if(method==="GET"&&p==="/api/graph")return graph();
-if(method==="GET"&&v==="concept"){let name=decodeURIComponent(parts.slice(2).join("/"));let mentions=[];for(const n of Object.values(db.records)){if(db.deleted[n.id])continue;let s=(n.body||"")+"\n"+(n.description||"");if(s.toLowerCase().includes("[["+name.toLowerCase()))mentions.push({id:n.id,kind:n.kind,title:n.title,part:n.kind==="note"?"note":"description",place:breadcrumbs(n).slice(0,-1).map(x=>x.title).join(" › "),snippet_html:md(s.slice(0,260))})}return {name,mentions}}
-if(method==="GET"&&p==="/api/search"){const q=new URLSearchParams(path.split("?")[1]).get("q")||"";return Object.values(db.records).filter(n=>!db.deleted[n.id]&&words(q).every(w=>(n.title+" "+(n.body||"")+" "+(n.description||"")).toLowerCase().includes(w))).slice(0,30).map(n=>({id:n.id,title:n.title,kind:n.kind,place:breadcrumbs(n).map(x=>x.title).join(" › "),snippet:escap((n.body||n.description||"").slice(0,240))}))}
+if(method==="GET"&&v==="concept"){
+ const name=decodeURIComponent(parts.slice(2).join("/")),key=name.trim().toLowerCase(),mentions=[];
+ for(const n of Object.values(db.records)){if(db.deleted[n.id]||archived(n))continue;for(const part of partsOf(n))if(linksOf(part.text).some(x=>x.toLowerCase()===key)){const pos=part.text.toLowerCase().indexOf("[["+key);mentions.push({id:n.id,kind:n.kind,title:n.title,part:part.part,place:breadcrumbs(n).slice(0,-1).map(x=>x.title).join(" › "),snippet_html:md(part.text.slice(Math.max(0,pos-70),Math.max(0,pos-70)+300))})}}
+ return {name,mentions};
+}
+if(method==="GET"&&p==="/api/search"){
+ const query=words(new URLSearchParams(path.split("?")[1]).get("q")||"");if(!query.length)return [];
+ const out=[];for(const n of Object.values(db.records)){
+  if(db.deleted[n.id]||["root","inbox","archive"].includes(n.id))continue;
+  const parts=partsOf(n),full=[n.title,...parts.map(x=>x.text)].join("\n").toLowerCase();if(!query.every(w=>full.includes(w)))continue;
+  const hit=parts.find(part=>query.every(w=>part.text.toLowerCase().includes(w)))||parts.find(part=>query.some(w=>part.text.toLowerCase().includes(w)))||{text:n.title};
+  const index=Math.max(0,hit.text.toLowerCase().indexOf(query[0])-65);
+  out.push({id:n.id,kind:n.kind,title:n.title,place:breadcrumbs(n).map(x=>x.title).join(" › "),part:hit.part,chunk:hit.chunk,snippet:hit.text.slice(index,index+260)});if(out.length>=30)break;
+ }return out;
+}
 if(method==="POST"&&p==="/api/render")return {__html:md(body.body)};
-if(method==="GET"&&v==="lectures"){const n=requireNode(oid);openedVersions.set(oid,fingerprint(n));const generated=n.generated||{},segments=n.segments||[];return {meta:n,chunks:(n.chunks||[]).map(c=>({...c,said:(c.segmentIds||[]).map(i=>segments[i]).filter(Boolean),link:n.panopto_url?(n.panopto_url+(n.panopto_url.includes("?")?"&":"?")+"start="+Math.floor(c.start)):c.link||"",time:Math.floor(c.start/60)+":"+String(Math.floor(c.start%60)).padStart(2,"0")})),pages_not_shown:[],generated,generated_html:Object.fromEntries(Object.entries(generated).map(([k,v])=>[k,md(v)])),my_notes:n.body||"",my_notes_html:md(n.body),has_audio:false,breadcrumbs:breadcrumbs(n)}}
-if(method==="POST"&&p==="/api/lectures/from-panopto")return mod("Import Panopto lecture",()=>{const parent=requireNode(body.parent_id||"inbox");if(!["inbox","section","module"].includes(parent.kind))throw Error("Choose a section or the Inbox");if(!Array.isArray(body.segments)||!body.segments.length)throw Error("Transcript is empty");const n={...body,id:id("l"),kind:"lecture",parent:parent.id,created:now(),updated:now(),status:"complete",body:"",title:body.title||"Panopto lecture",source:"panopto-captions"};db.records[n.id]=n;return {id:n.id}})
-if(method==="PUT"&&v==="lectures"&&parts[3]==="transcript")return mod("Correct Panopto captions",()=>{const n=preserveEditorVersion(oid);if(!Array.isArray(body.segments)||!body.segments.length)throw Error("Transcript cannot be empty");n.segments=body.segments;n.chunks=body.chunks||n.chunks;n.generated=body.generated||n.generated;touch(n);return {ok:true}})
+if(method==="GET"&&v==="lectures")return lectureBundle(requireNode(oid));
+if(method==="POST"&&p==="/api/lectures/from-panopto")return mod("Import lecture transcript",()=>{
+ const parent=requireNode(body.parent_id||"inbox");if(!["inbox","section","module"].includes(parent.kind))throw Error("Choose a section or the Inbox");
+ const segments=validateSegments(body.segments),url=body.panopto_url?lectureUrl(body.panopto_url):"";
+ if(body.panopto_url&&!url)throw Error("Lecture links must use HTTPS and contain no login credentials");
+ if(!String(body.title||"Lecture transcript").trim())throw Error("Enter a lecture title");
+ const n={...body,id:id("l"),kind:"lecture",parent:parent.id,created:now(),updated:now(),status:"complete",body:"",title:String(body.title||"Lecture transcript").trim(),segments,panopto_url:url,source:url?"panopto-captions":"transcript-import",caption_reviewed:false};
+ delete n.parent_id;db.records[n.id]=n;return {id:n.id};
+});
+if(method==="PUT"&&v==="lectures"&&parts[3]==="transcript")return mod("Correct lecture captions",()=>{
+ const segments=validateSegments(body.segments),n=preserveEditorVersion(oid);
+ n.segments=segments;n.chunks=body.chunks||n.chunks;n.caption_reviewed=true;
+ if(body.generated){n.generated={...(n.generated||{}),...body.generated};n.materials_stale=false;if(body.generated_source)n.generated_source=body.generated_source}
+ else n.materials_stale=Boolean(Object.keys(n.generated||{}).length);
+ touch(n);return {ok:true};
+});
 
+if(method==="PUT"&&v==="lectures"&&parts[3]==="materials")return mod("Save prepared study material",()=>{
+ const kinds={"study-pack":"study-pack.md",flashcards:"flashcards.md",resources:"resources.md",explanation:"explain-"+id("e")+".md"},filename=kinds[body.kind];
+ if(!filename||typeof body.body!=="string"||!body.body.trim())throw Error("Choose a material type and paste its content");
+ if(new TextEncoder().encode(body.body).byteLength>1024*1024)throw Error("Study material must be smaller than 1 MiB");
+ const n=preserveEditorVersion(oid);n.generated={...(n.generated||{}),[filename]:body.body};n.generated_source="prepared";n.materials_stale=false;if(body.kind==="study-pack")n.status="complete";touch(n);return {ok:true,filename};
+});
 if(method==="PUT"&&v==="lectures"&&parts[3]==="notes")return mod("Edit lecture notes",()=>{let n=preserveEditorVersion(oid,body),conflictPreserved=n.body!==body.body&&body.expectedBody!==undefined&&n.body!==body.expectedBody;n.body=body.body;touch(n);return {html:md(n.body),conflictPreserved}});
 if(method==="POST"&&p==="/api/lectures")throw Error("Lecture transcription runs on the Mac version. The browser version supports notes and existing text only.");
 throw Error("This feature requires the Mac version: "+method+" "+p);
@@ -151,7 +233,7 @@ function undo(){
    if(previous){restored.records[key]=copy(previous);restored.records[key].updated=Math.max(now(),Number(current.records[key]?.updated||0)+1,Number(current.deleted[key]||0)+1);delete restored.deleted[key]}
    else{delete restored.records[key];restored.deleted[key]=Math.max(now(),Number(current.records[key]?.updated||0)+1,Number(current.deleted[key]||0)+1)}
   }
-  db=restored;history.pop();save();localStorage.setItem(HISTORY,JSON.stringify(history));return {undone:last.message};
+  db=restored;history.pop();persistHistory();save();return {undone:last.message};
  }catch(e){db=current;history=oldHistory;throw e}
 }
 function queueSync(delay=650){

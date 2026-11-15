@@ -33,6 +33,15 @@ The vault is readable without Lumen. Each lecture keeps `Source/` (originals, ne
 `Generated/` (AI study material, can be regenerated) and `My Notes/` (yours, never overwritten by AI).
 Your vault is **not** part of this repository.
 
+## Study workflow status
+
+The hosted app imports captions or pasted transcripts and prepares labelled,
+extractive study outlines. It does not yet transcribe uploaded recordings or call
+an AI generator. Prepared assistant output can be saved into a lecture with **Add
+study material**. Local Whisper transcription and the MCP connector belong to the
+separate Mac app. See the [study-workflow audit](docs/STUDY_WORKFLOW_AUDIT.md) for
+verified behavior, repairs and remaining production work.
+
 ## Open it without installing anything
 
 Use [Lumen with automatic device sync](https://lumen-knowledge-sync.noisyagate9.chatgpt.site).

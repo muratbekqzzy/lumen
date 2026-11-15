@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -16,12 +17,29 @@ MODEL = os.environ.get("LUMEN_WHISPER_MODEL", "mlx-community/whisper-large-v3-tu
 
 
 def _ensure_ffmpeg_on_path() -> None:
-    bin_dir = str(ROOT / "bin")
-    if bin_dir not in os.environ.get("PATH", ""):
-        os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    """Use system ffmpeg, or expose the bundled executable to Whisper's subprocess."""
+    if shutil.which("ffmpeg"):
+        return
+    try:
+        import imageio_ffmpeg
+        executable = Path(imageio_ffmpeg.get_ffmpeg_exe()).resolve()
+    except (ImportError, RuntimeError) as exc:
+        raise RuntimeError("FFmpeg is unavailable. Install Lumen's Python dependencies before transcribing.") from exc
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise RuntimeError("The bundled FFmpeg executable is unavailable or cannot run.")
+    bin_dir = ROOT / "cache" / "ffmpeg-bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    link = bin_dir / "ffmpeg"
+    if link.is_symlink() and link.resolve() != executable:
+        link.unlink()
+    if not link.exists():
+        link.symlink_to(executable)
+    if not os.access(link, os.X_OK):
+        raise RuntimeError("Lumen's FFmpeg launcher is not executable.")
+    os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
 
 
-def transcribe(audio: Path, out_json: Path, vocabulary: str = "", language: str | None = "en") -> dict:
+def transcribe(audio: Path, out_json: Path, vocabulary: str = "", language: str | None = None) -> dict:
     """Transcribe `audio` and write segments (with timestamps) to `out_json`."""
     _ensure_ffmpeg_on_path()
     import mlx_whisper  # imported lazily: heavy
@@ -38,9 +56,10 @@ def transcribe(audio: Path, out_json: Path, vocabulary: str = "", language: str 
     )
     segments = [
         {"id": i, "start": round(s["start"], 2), "end": round(s["end"], 2), "text": s["text"].strip()}
-        for i, s in enumerate(result.get("segments", []))
-        if s["text"].strip()
+        for i, s in enumerate(s for s in result.get("segments", []) if s.get("text", "").strip())
     ]
+    if not segments:
+        raise RuntimeError("No speech was detected. Check the recording and language before trying again.")
     data = {
         "model": MODEL,
         "language": result.get("language", language),

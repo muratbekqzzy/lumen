@@ -71,6 +71,7 @@ function browser(remote, options = {}) {
     crypto: webcrypto, TextEncoder, TextDecoder, Response, Request, URL, URLSearchParams, FormData,
     AbortController, Event, Blob, console, btoa, atob, setTimeout: () => 0, clearTimeout() {}, setInterval() {}, alert() {}, confirm: () => true};
   vm.createContext(context);
+  vm.runInContext(readFileSync(new URL("../web/markdown.js", import.meta.url), "utf8"), context);
   vm.runInContext(code, context, {filename: 'cloud/cloud.js'});
   return {window, saved, account, navigator, hooks, cloud: window.LumenCloud};
 }
@@ -212,4 +213,22 @@ test('a changed authenticated account starts with its own cloud and does not upl
   assert.equal((await remote.cloud('alice')).state.records[note.id].body, 'Alice private note');
   a.account.id = 'alice'; await connect(a);
   assert.equal((await api(a, 'GET', '/api/notes/' + note.id)).body, 'Alice private note');
+});
+
+test('prepared learning materials, safe caption review and rich rendering survive real two-device sync', async () => {
+  const remote=server(), a=browser(remote), b=browser(remote);
+  await connect(a);
+  const lecture=await api(a,'POST','/api/lectures/from-panopto',{title:'Memory',segments:[{id:11,start:0,end:4,text:'Retrieval source'}],generated:{'resources.md':'Reviewed reference'}});
+  await api(a,'PUT','/api/lectures/'+lecture.id+'/materials',{kind:'study-pack',body:'# Memory\n\n[[Retrieval]]\n\n```quiz\n{"questions":[{"q":"What?","options":["A","B"],"answer":0}]}\n```'});
+  await connect(a);await connect(b);
+  let received=await api(b,'GET','/api/lectures/'+lecture.id);
+  assert(received.generated_html['study-pack.md'].includes('language-quiz'));
+  assert.equal(received.chunks[0].said[0].id,11);
+  await api(b,'PUT','/api/lectures/'+lecture.id+'/transcript',{segments:[{id:11,start:0,end:4,text:'Corrected retrieval source'}]});
+  await connect(b);await connect(a);
+  received=await api(a,'GET','/api/lectures/'+lecture.id);
+  assert(received.meta.materials_stale&&received.meta.caption_reviewed);
+  assert.equal(received.generated['resources.md'],'Reviewed reference');
+  assert(received.generated['study-pack.md'].includes('[[Retrieval]]'));
+  assert.equal((await api(a,'GET','/api/search?q=corrected'))[0].id,lecture.id);
 });

@@ -608,3 +608,6 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
 .studio-link:hover { color: var(--ink); border-color: var(--accent); text-decoration: none; }
 .welcome-kicker { display: block; margin-bottom: 12px; font: 500 8px var(--mono); letter-spacing: .24em; text-transform: uppercase; color: var(--accent); }
 .pill:disabled { cursor: default; opacity: .65; }
+.study-notice { margin: 0 0 18px; padding: 13px 16px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--accent-soft); color: var(--ink-2); font-size: 12.5px; line-height: 1.7; }
+.study-notice strong { color: var(--ink); font-weight: 500; }
+.time:disabled { cursor: default; opacity: .65; }

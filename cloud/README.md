@@ -84,25 +84,37 @@ the Sites publishing workflow; rebuilding files alone does not update production
 The GitHub Actions workflow publishes the original-address browser app and
 migration entry point after changes to `main`.
 
-## Panopto lecture importing
+## Lecture study workflow
 
-Use **Lumen → a section or Inbox → Add lecture**.
+1. Choose **Add lecture** in a section or the Inbox.
+2. Upload `.vtt`, `.srt` or `.txt` captions, or paste a transcript. Add a title.
+3. Optionally attach a text-based PDF and a Panopto playback link.
+4. Import, then **Review captions**. Find technical terms using the caption search.
+5. Use the draft outline and review questions, or **Copy lecture source** to work
+   with an external assistant. **Add study material** saves prepared Markdown,
+   Q:/A: flashcards, explanations or verified resources into the same lecture.
 
-1. Copy the university Panopto Viewer link.
-2. In Panopto, use **Captions → Download transcript**, or export a timed
-   `.vtt`/`.srt` subtitle file if you have access to the caption files.
-3. In Lumen, paste the Panopto link, attach the caption file and optionally
-   the PDF lecture slides. Select **Structure lecture and save**.
-4. Open the lecture and choose **Review captions** to correct technical terms.
-   Saving corrections regenerates the extractive study-pack outline and
-   draft flashcards. Changes save offline immediately, then sync with your account when you are online.
+This browser edition does **not** transcribe recordings or call an AI generator.
+Its automatic outlines are extractive drafts. Caption review can rebuild those
+outlines explicitly; existing resources and personal notes are retained. When
+prepared materials are kept after transcript edits, a stale-material notice asks
+for review. Caption IDs are stable lookup keys, not array positions.
 
-Lumen accepts caption text instead of rerunning Whisper, and this avoids
-the browser/Python mismatch that previously blocked lecture uploading.
-**Panopto link-only access from GitHub Pages is not currently supported**
-because university videos and captions may require an authenticated,
-cross-origin Panopto session. **Do not put university account passwords
-or session cookies into Lumen's web form or GitHub repository.**
+The original source transcript is retained in the lecture. Long outlines are
+labelled excerpts. Untimed text has estimated grouping and no fabricated Panopto
+playback links. Matching text to PDF pages is approximate, not verified slide timing.
+Original PDFs and recordings are not stored by this importer. The optional PDF
+reader, chart renderer and math renderer currently require their external libraries
+when not already available in the browser.
+
+Tables, fenced quizzes, plots and sandboxed widgets now render through a local
+Markdown engine. Lecture search includes captions, slide text, prepared materials
+and personal notes. The Universe includes concept links from study materials and
+excludes archived records and code examples.
+
+SPSS Studio remains at `web/spss.html`; its progress is browser-local. It can later
+be embedded or linked within a statistics section while retaining this address.
+It is a teaching module, not a running IBM SPSS installation or an AI tutor.
 
 ### One-command link import on your Mac
 
@@ -125,7 +137,7 @@ option and the website importer.
 but Panopto's common `.txt` transcript export may omit timestamps.
 Matching transcripts to slide pages is currently approximate. PDF text is
 extracted into the synced lecture record; the original PDF pages/images
-and lecture recordings are not uploaded to GitHub. Generated notes and
+and lecture recordings are not stored by browser sync. Generated notes and
 flashcards are draft, extractive study aids: they are not reviewed by an AI,
 cannot automatically correct terminology and should be checked against the
 lecture. Edits to imported lectures can have conflicts if two devices edit
