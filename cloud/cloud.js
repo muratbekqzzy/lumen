@@ -63,19 +63,112 @@ async function derive(pass,salt){let base=await crypto.subtle.importKey("raw",by
 async function encrypt(obj,pass){let salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));let key=await derive(pass,salt),data=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,bytes(JSON.stringify(obj)));return {v:1,alg:"AES-256-GCM",kdf:"PBKDF2-SHA256",iterations:310000,salt:toB64(salt),iv:toB64(iv),data:toB64(data)}}
 async function decrypt(payload,pass){if(payload.v!==1||payload.alg!=="AES-256-GCM")throw Error("Unsupported encrypted data format");let key=await derive(pass,fromB64(payload.salt));return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:fromB64(payload.iv)},key,fromB64(payload.data))))}
 const encode64=s=>btoa(unescape(encodeURIComponent(s))),decode64=s=>decodeURIComponent(escape(atob(s.replace(/\s/g,""))));
-function merge(a,b){const out=copy(a);out.records||={};out.deleted||={};for(const [id,t] of Object.entries(b.deleted||{}))out.deleted[id]=Math.max(out.deleted[id]||0,t);for(const [id,r] of Object.entries(b.records||{})){const local=out.records[id];if(!local||Number(r.updated||0)>Number(local.updated||0))out.records[id]=r}for(const [id,t] of Object.entries(out.deleted)){if(out.records[id]&&(out.records[id].updated||0)>t)delete out.deleted[id]}return out}
-let session=(()=>{try{return JSON.parse(sessionStorage.getItem("lumen.cloud.session")||"{}")}catch{return {}}})();let token=session.token||"",passphrase=session.passphrase||"",pending=false;
-const status=(message,error=false)=>{let el=document.querySelector("#lumen-sync-status");if(el){el.textContent=message;el.style.color=error?"#f6a3a3":""}lastError=error?message:""};
+
+/* Cross-device sync. GitHub is the canonical encrypted copy while browser storage
+   remains usable offline. Each browser tracks the last confirmed record versions,
+   so concurrent edits to one item are preserved as conflict copies. */
+const AUTH_KEY="lumen.cloud.auth.v1", SESSION_KEY="lumen.cloud.session", BASELINE_KEY="lumen.cloud.synced.v2";
+const fingerprint=obj=>{const str=JSON.stringify(obj),a=16777619;let h=2166136261,j=2246822519;
+ for(let i=0;i<str.length;i++){const c=str.charCodeAt(i);h=Math.imul(h^c,a);j=Math.imul(j+c,1597334677)}
+ return (h>>>0).toString(16).padStart(8,"0")+(j>>>0).toString(16).padStart(8,"0")};
+const fingerprints=data=>Object.fromEntries(Object.entries(data.records||{}).map(([id,r])=>[id,fingerprint(r)]));
+let baseline=load(BASELINE_KEY,null);
+let auth=load(AUTH_KEY,null)||load(SESSION_KEY,null);
+if(auth&&(!cfg||auth.owner!==cfg.owner||auth.repo!==cfg.repo))auth=null;
+let token=auth?.token||"",passphrase=auth?.passphrase||"",pending=false,dirtyVersion=0,syncTimer=null,lastSyncState="offline",lastSyncMessage="Not connected";
+const credentials=()=>Boolean(cfg&&token&&passphrase);
+const validCfg=c=>c&&/^[a-zA-Z0-9-]{1,39}$/.test(c.owner)&&/^[a-zA-Z0-9._-]{1,100}$/.test(c.repo);
+function updateIndicator(){
+ const b=document.querySelector("#lumen-sync-settings");
+ if(b){b.dataset.sync=lastSyncState;b.title="Settings · "+lastSyncMessage;b.setAttribute("aria-label","Settings · "+lastSyncMessage)}
+ const line=document.querySelector("#lumen-sync-status-detail");
+ if(line){line.textContent=lastSyncMessage;line.dataset.sync=lastSyncState}
+}
+function status(state,message){lastSyncState=state;lastSyncMessage=message;lastError=state==="error"?message:"";updateIndicator()}
 const headers=()=>({Authorization:"Bearer "+token,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"});
-const endpoint=()=>`https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/lumen-vault.enc.json`;
-async function sync(){if(!cfg||!token||!passphrase||busy||!navigator.onLine)return;busy=true;status("Syncing…");try{for(let attempts=0;attempts<5;attempts++){let getResp=await realFetch(endpoint(),{headers:headers(),cache:"no-store"});if(!getResp.ok&&getResp.status!==404)throw Error("GitHub read failed ("+getResp.status+")");let file=getResp.status===404?null:await getResp.json(),remote=file?await decrypt(JSON.parse(decode64(file.content)),passphrase):base();
-let before=JSON.stringify(db);db=merge(db,remote);if(before!==JSON.stringify(db)){localStorage.setItem(DATA,JSON.stringify(db));window.dispatchEvent(new Event("lumen-remote-updated"));if(!document.activeElement?.matches("textarea,input,[contenteditable=true]"))setTimeout(()=>window.dispatchEvent(new Event("hashchange")),100)}
-if(file&&JSON.stringify(remote)===JSON.stringify(db)){lastSuccess=now();pending=false;status("Synced "+new Date().toLocaleTimeString());return}
-const uploaded=await encrypt(db,passphrase);
-let response=await realFetch(endpoint(),{method:"PUT",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify({message:"Sync Lumen encrypted vault",content:encode64(JSON.stringify(uploaded)),...(file?{sha:file.sha}:{})})});
-if(response.status===409||response.status===422){await new Promise(r=>setTimeout(r,200+Math.random()*300));continue}if(!response.ok)throw Error("GitHub write failed ("+response.status+")");lastSuccess=now();pending=false;status("Synced "+new Date().toLocaleTimeString());return}throw Error("Multiple simultaneous updates. Try syncing again.");}catch(e){status(e.message,true)}finally{busy=false;if(pending&&navigator.onLine&&!lastError)setTimeout(sync,1500)}}
-function queueSync(){if(!cfg)return;pending=true;clearTimeout(timer);timer=setTimeout(sync,1800)}
-window.addEventListener("online",()=>sync());document.addEventListener("visibilitychange",()=>{if(!document.hidden)sync()});setInterval(()=>{if(!document.hidden&&cfg&&token&&passphrase)sync()},60000);
+const endpoint=()=>("https://api.github.com/repos/"+encodeURIComponent(cfg.owner)+"/"+encodeURIComponent(cfg.repo)+"/contents/lumen-vault.enc.json");
+const repoEndpoint=()=>("https://api.github.com/repos/"+encodeURIComponent(cfg.owner)+"/"+encodeURIComponent(cfg.repo));
+function recordHistory(message){history.push({date:new Date().toISOString(),message,db:copy(db)});if(history.length>30)history.shift();try{localStorage.setItem(HISTORY,JSON.stringify(history))}catch{}}
+function persistBaseline(sent){baseline={owner:cfg.owner,repo:cfg.repo,records:fingerprints(sent)};try{localStorage.setItem(BASELINE_KEY,JSON.stringify(baseline))}catch(e){console.warn("Could not store Lumen sync checkpoint",e)}}
+function baselineRecords(){return baseline&&cfg&&baseline.owner===cfg.owner&&baseline.repo===cfg.repo?baseline.records||{}:{}}
+function mergeStates(local,remote){
+ const out=copy(local),old=baselineRecords();
+ out.records||={};out.deleted||={};
+ for(const [key,t] of Object.entries(remote.deleted||{}))out.deleted[key]=Math.max(out.deleted[key]||0,t);
+ for(const [key,r] of Object.entries(remote.records||{})){
+  const existing=out.records[key];
+  if(["root","inbox","archive"].includes(key)){out.records[key]=copy(r);continue}
+  if(!existing){out.records[key]=copy(r);continue}
+  const current=fingerprint(existing),incoming=fingerprint(r),previous=old[key];
+  if(current===incoming)continue;
+  if(previous&&current===previous){out.records[key]=copy(r);continue}
+  if(previous&&incoming===previous)continue;
+  // Both versions changed since the last confirmed sync: preserve both.
+  // Derive a stable copy ID to avoid creating repeated duplicates on retries.
+  const conflictId="conflict_"+key+"_"+incoming;
+  if(!out.records[conflictId]){
+   const duplicate=copy(r);
+   duplicate.id=conflictId;
+   duplicate.title=(r.title||"Untitled")+" (conflict copy)";
+   duplicate.updated=now();
+   out.records[conflictId]=duplicate;
+  }
+ }
+ for(const [key,t] of Object.entries(out.deleted)){if(out.records[key]&&Number(out.records[key].updated||0)<=Number(t))delete out.records[key]}
+ return out;
+}
+function saveMerged(merged){
+ if(JSON.stringify(merged)===JSON.stringify(db))return;
+ db=merged;localStorage.setItem(DATA,JSON.stringify(db));
+ window.dispatchEvent(new Event("lumen-remote-updated"));
+}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function queueSync(delay=900){pending=true;dirtyVersion++;clearTimeout(syncTimer);if(!credentials())return;status("pending","Saved locally · syncing soon");syncTimer=setTimeout(()=>sync(),delay)}
+async function sync(){
+ if(!credentials()){status("disconnected",cfg?"Unlock sync in Settings":"Connect GitHub in Settings");return false}
+ if(!navigator.onLine){status("offline","Saved on this device · waiting for internet");return false}
+ if(busy){pending=true;return false}
+ busy=true;clearTimeout(syncTimer);status("syncing","Syncing with GitHub…");
+ let ok=false,changedDuring=false;
+ try{
+  for(let attempt=0;attempt<5;attempt++){
+   const response=await realFetch(endpoint(),{headers:headers(),cache:"no-store"});
+   if(!response.ok&&response.status!==404)throw Error("GitHub download failed (HTTP "+response.status+")");
+   const file=response.status===404?null:await response.json();
+   if(file&&(!file.content||file.size>950000))throw Error("GitHub vault is too large for one sync file. Export a backup.");
+   let remote=file?await decrypt(JSON.parse(decode64(file.content)),passphrase):base();
+   if(!remote||typeof remote.records!=="object")throw Error("Unsupported GitHub vault format");
+   const merged=mergeStates(db,remote);
+   saveMerged(merged);
+   const sent=copy(db),writeAtVersion=dirtyVersion;
+   if(file&&JSON.stringify(remote)===JSON.stringify(sent)){
+    persistBaseline(sent);changedDuring=dirtyVersion!==writeAtVersion;ok=true;break;
+   }
+   const upload=await encrypt(sent,passphrase);
+   const put=await realFetch(endpoint(),{method:"PUT",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify({message:"Sync Lumen encrypted vault",content:encode64(JSON.stringify(upload)),...(file?{sha:file.sha}:{})})});
+   if(put.status===409||put.status===422){await sleep(240+Math.random()*300);continue}
+   if(!put.ok)throw Error("GitHub upload failed (HTTP "+put.status+")");
+   persistBaseline(sent);changedDuring=dirtyVersion!==writeAtVersion;ok=true;break;
+  }
+  if(!ok)throw Error("Too many simultaneous updates. Lumen will retry.");
+  pending=changedDuring;
+  lastSuccess=now();status("synced","Synced · "+new Date().toLocaleTimeString());
+  return true;
+ }catch(e){
+  status("error",e.message||"Couldn't synchronize. Your changes remain saved here.");
+  pending=true;return false;
+ }finally{
+  busy=false;
+  if(pending&&ok)syncTimer=setTimeout(()=>sync(),600);
+ }
+}
+window.addEventListener("online",()=>sync());
+window.addEventListener("focus",()=>sync());
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)sync()});
+window.addEventListener("storage",ev=>{
+ if(ev.key===DATA&&ev.newValue){try{const incoming=JSON.parse(ev.newValue);if(incoming?.records){const merged=mergeStates(db,incoming);if(JSON.stringify(merged)!==JSON.stringify(db)){db=merged;window.dispatchEvent(new Event("lumen-remote-updated"));queueSync(500)}}}catch(e){console.warn("Could not reconcile Lumen browser tabs",e)}}
+});
+setInterval(()=>{if(!document.hidden&&credentials())sync()},15000);
 const st=document.createElement("style");st.textContent=`#lumen-sync-bar{position:fixed;bottom:12px;right:15px;z-index:9000;display:flex;align-items:center;gap:10px;padding:8px 12px;background:#20212a;color:#eee;border:1px solid #454654;border-radius:12px;box-shadow:0 8px 30px #0005;font:12px system-ui}#lumen-sync-bar button{color:#b8d3ff;border:1px solid #576276;border-radius:7px;padding:5px 8px;cursor:pointer}#lumen-cloud-modal{position:fixed;inset:0;z-index:9001;background:#000b;display:grid;place-items:center;padding:15px}#lumen-cloud-modal .panel{width:min(500px,100%);max-height:95vh;overflow:auto;background:#1e2028;color:#f1f1f1;border:1px solid #535563;border-radius:18px;padding:22px;font:14px/1.6 system-ui}#lumen-cloud-modal input{display:block;width:100%;margin:4px 0 12px;background:#101219;border:1px solid #515768;border-radius:8px;color:white;padding:10px}#lumen-cloud-modal button{background:#a4c5ff;color:#161923;padding:9px 13px;border-radius:9px;margin-right:6px;margin-bottom:8px;cursor:pointer}#lumen-cloud-modal a{color:#a4c5ff}`;document.head.append(st);
 function settings(){document.querySelector("#lumen-cloud-modal")?.remove();let modal=document.createElement("div");modal.id="lumen-cloud-modal";modal.innerHTML=`<div class="panel"><h2>Lumen sync</h2><p>Your notes are saved in this browser immediately. To sync across devices, create a <b>separate private GitHub repository</b> and a fine-grained access token restricted to that repository with <b>Contents: Read and write</b>. The app encrypts your data before uploading.</p><p><a href="https://github.com/new" target="_blank" rel="noopener">Create private repository</a> · <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create token</a></p><form id="lumen-cloud-form"><label>GitHub account/owner<input name="owner" required placeholder="github-username" value="${escap(cfg?.owner||"")}"></label><label>Private data repository name<input name="repo" required placeholder="lumen-private-data" value="${escap(cfg?.repo||"")}"></label><label>Fine-grained access token<input type="password" name="token" required autocomplete="off" placeholder="github_pat_…"></label><label>Encryption password (choose a strong, unique phrase)<input type="password" name="pass" required minlength="12" autocomplete="off" placeholder="At least 12 characters"></label><p style="font-size:12px;opacity:.85">Keep both secrets safe. The encryption password cannot be recovered. Secrets stay only in memory until this tab is closed, so you will re-enter them when opening the site on a new session. Never paste them into chat or commit them to your code.</p><button type="submit">Connect and sync</button><button type="button" id="lumen-close">Close</button><button type="button" id="lumen-export">Export backup</button><button type="button" id="lumen-import">Import backup</button><input type="file" id="lumen-import-file" accept=".json" hidden></form><p id="lumen-form-error" role="alert"></p></div>`;document.body.append(modal);
 modal.querySelector("#lumen-close").onclick=()=>modal.remove();modal.querySelector("#lumen-export").onclick=()=>{let a=document.createElement("a"),blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"});a.href=URL.createObjectURL(blob);a.download="lumen-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
