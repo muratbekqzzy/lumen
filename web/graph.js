@@ -1,6 +1,7 @@
 // Lumen's knowledge universe. Library records are the stars; ambient dust is decorative.
 import { forceSimulation, forceLink, forceManyBody, forceCollide, forceX, forceY } from "./force.js";
-import { galaxyLayout, overviewCamera, rotatePoint, screenPoint, worldPoint, canvasPixelRatio, textureResolution, starAppearance } from "./universe.js";
+import { createGalaxyAtlas } from "./galaxy.js";
+import { galaxyLayout, overviewCamera, rotatePoint, screenPoint, worldPoint, canvasPixelRatio, starAppearance, seededRandom, motionResponse } from "./universe.js";
 
 const KIND_R = { section: 2.9, module: 1.8, lecture: 1.65, note: 1.25, concept: .95 };
 const SANS = '"Inter Tight", "Inter", -apple-system, sans-serif';
@@ -17,31 +18,7 @@ const palettes = {
   space: { ink: "#f4f0fb", muted: "#b3abcf", star: "#dcd3f2", concept: "#b7c4ee", bridge: "#fbd8e0", dust: "#d8d1f0", core: "#fffaf2", halo: "#b9a8e6", edge: .10, lit: .42 },
   sky: { ink: "#3f3460", muted: "#7c7099", star: "#9f86c9", concept: "#8397c4", bridge: "#cf90c1", dust: "#a394c8", core: "#6f549f", halo: "#b193d6", edge: .14, lit: .46 },
 };
-const galaxyCache=new Map();let galaxyCacheBytes=0;
-function randomFrom(seed){let value=2166136261;for(const char of String(seed))value=Math.imul(value^char.charCodeAt(0),16777619);return()=>{value+=0x6D2B79F5;let n=value;n=Math.imul(n^n>>>15,n|1);n^=n+Math.imul(n^n>>>7,n|61);return ((n^n>>>14)>>>0)/4294967296;};}
-function galaxySprite(sky,index,pixelDemand=512){
- const resolution=textureResolution(pixelDemand),variant=index%2,key=(sky?'sky':'space')+variant+'-'+resolution;
- if(galaxyCache.has(key)){const canvas=galaxyCache.get(key);galaxyCache.delete(key);galaxyCache.set(key,canvas);return canvas;}
- const canvas=document.createElement('canvas');canvas.width=canvas.height=resolution;const g=canvas.getContext('2d'),random=randomFrom('galaxy-'+variant);
- g.setTransform(resolution/512,0,0,resolution/512,0,0);g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';
- const colors=sky?(variant?['#8397c4','#cf90c1','#8d80b0']:['#cf90c1','#8d80b0','#8397c4']):variant?['#aacbe0','#cf90c1','#8d80b0']:['#fbd8e0','#8397c4','#cf90c1'];
- // A low-contrast light field, with the same filament positions at every resolution.
- for(let j=0;j<3;j++){
-  g.save();g.translate(256+(j-1)*28,256+(j-1)*14);g.scale(1,.6+j*.035);
-  const radius=216-j*36,gradient=g.createRadialGradient(0,0,0,0,0,radius);
-  gradient.addColorStop(0,rgba(colors[j],sky?.085:.075));gradient.addColorStop(.48,rgba(colors[j],.032));gradient.addColorStop(1,rgba(colors[j],0));
-  g.fillStyle=gradient;g.fillRect(-radius,-radius,radius*2,radius*2);g.restore();
- }
- for(let i=0;i<1400;i++){
-  const r=Math.min(236,Math.sqrt(-Math.log(Math.max(.0001,1-random())))*105),arm=i%3*Math.PI*2/3,a=r*.025+arm+(random()-.5)*.48;
-  const x=256+Math.cos(a)*r+(random()-.5)*15,y=256+Math.sin(a)*r*.6+(random()-.5)*10,size=random()>.996?1.1:.22+random()*.44;
-  g.globalAlpha=Math.pow(Math.max(0,1-r/236),1.7)*(.06+random()*.22);g.fillStyle=colors[i%3];g.beginPath();g.arc(x,y,size,0,Math.PI*2);g.fill();
- }
- g.globalAlpha=1;const core=g.createRadialGradient(256,256,0,256,256,27);core.addColorStop(0,rgba('#eee7ec',.16));core.addColorStop(.22,rgba(colors[0],.09));core.addColorStop(.65,rgba(colors[1],.025));core.addColorStop(1,rgba(colors[1],0));g.fillStyle=core;g.fillRect(228,228,56,56);
- const used=resolution*resolution*4;
- while(galaxyCache.size&&galaxyCacheBytes+used>42*1024*1024){const oldest=galaxyCache.keys().next().value,cached=galaxyCache.get(oldest);galaxyCacheBytes-=cached.width*cached.height*4;galaxyCache.delete(oldest);}
- galaxyCache.set(key,canvas);galaxyCacheBytes+=used;return canvas;
-}
+
 const glowCache=new Map();
 function glow(color){
  if(glowCache.has(color))return glowCache.get(color);
@@ -53,7 +30,7 @@ function glow(color){
 const sparkleCache=new Map();
 function sparkle(color,heart='#ffffff'){
  const key=color+heart;if(sparkleCache.has(key))return sparkleCache.get(key);
- const canvas=document.createElement('canvas');canvas.width=canvas.height=128;const g=canvas.getContext('2d'),c=64;
+ const canvas=document.createElement('canvas');canvas.width=canvas.height=256;const g=canvas.getContext('2d'),c=64;g.scale(2,2);
  const ray=(reach,waist,alpha)=>{g.globalAlpha=alpha;g.beginPath();g.moveTo(c,c-reach);g.quadraticCurveTo(c+waist,c-waist,c+reach,c);g.quadraticCurveTo(c+waist,c+waist,c,c+reach);g.quadraticCurveTo(c-waist,c+waist,c-reach,c);g.quadraticCurveTo(c-waist,c-waist,c,c-reach);g.fill();};
  g.fillStyle=color;ray(62,7,.22);ray(54,3.2,.5);g.fillStyle=heart;ray(40,1.4,.9);
  g.globalAlpha=1;if(sparkleCache.size>=48)sparkleCache.delete(sparkleCache.keys().next().value);sparkleCache.set(key,canvas);return canvas;
@@ -71,10 +48,13 @@ export function mountGraph(host, data, opts = {}) {
   function listen(target, name, handler, options) { target.addEventListener(name, handler, options); cleanups.push(() => target.removeEventListener(name, handler, options)); }
   let W = 0, H = 0, dpr = canvasPixelRatio(W,H,globalThis.devicePixelRatio||1);
   let destroyed = false, raf = null, palette = palettes.space, sky = false, reduceMotion = false;
-  let t0 = performance.now(), last = -Infinity, settled = false, needsDraw = true;
-  const nodes = (data.nodes || []).map((n, i) => ({ ...n, title: String(n.title || "Untitled"), i, vis: 0, born: 100 + Math.min(i * 12, 720),
+  let last = null, sceneTime = 0, settled = false, needsDraw = true;
+  const atlas=createGalaxyAtlas({onReady:()=>wake()});
+  const pointer={x:0,y:0,tx:0,ty:0};
+  const tintCache=new Map();
+  const nodes = (data.nodes || []).map((n, i) => ({ ...n, title: String(n.title || "Untitled"), i, vis: 0, born: 40 + Math.min(i * 8, 400),
     r: (KIND_R[n.kind] || 2) + Math.min(5, Math.sqrt(Math.max(0, n.degree || 0)) * (n.kind === "concept" ? .55 : .35)),
-    phase: randomFrom(n.id)() * Math.PI * 2, luminance:.74+randomFrom(n.id+"light")()*.20, dx: 0, dy: 0 }));
+    emphasis:0, phase: seededRandom(n.id)() * Math.PI * 2, luminance:.74+seededRandom(n.id+"light")()*.20, dx: 0, dy: 0 }));
   const byId = new Map(nodes.map(n => [n.id, n]));
   const links = (data.edges || []).filter(e => byId.has(e.source) && byId.has(e.target)).map(e => ({ ...e, vis: 0 }));
   const nbrs = new Map(nodes.map(n => [n.id, new Set()]));
@@ -87,11 +67,12 @@ export function mountGraph(host, data, opts = {}) {
   }
   const sectionInfo = new Map(nodes.filter(n => n.kind === "section").map(s => [s.id, { title: s.title, color: s.color }]));
   const galaxies=galaxyLayout(nodes);
-  for(const g of galaxies.values())Object.assign(g,{...sectionInfo.get(g.id),cx:g.ax,cy:g.ay,rad:g.footprint,n:0,spin:randomFrom(g.id)()*Math.PI,core:nodes.find(node=>node.kind==='section'&&node.id===g.id)});
+  for(const g of galaxies.values())Object.assign(g,{...sectionInfo.get(g.id),cx:g.ax,cy:g.ay,rad:g.footprint,n:0,spin:seededRandom(g.id)()*Math.PI,core:nodes.find(node=>node.kind==='section'&&node.id===g.id)});
   function colorOf(n) {
+    if(tintCache.has(n.id))return tintCache.get(n.id);
     if (n.kind === "concept") return n.bridges > 1 ? palette.bridge : palette.concept;
     const original=n.color||galaxies.get(n.galaxy)?.color||palette.star,base=rgb(galaxies.get(n.galaxy)?.index%2?'#c9c1d7':palette.star);
-    return '#'+rgb(original).map((value,i)=>Math.round(base[i]*.5+value*.5).toString(16).padStart(2,'0')).join('');
+    const color='#'+rgb(original).map((value,i)=>Math.round(base[i]*.5+value*.5).toString(16).padStart(2,'0')).join('');tintCache.set(n.id,color);return color;
   }
   const localCounts=new Map();nodes.forEach(n=>{const g=galaxies.get(n.galaxy),i=localCounts.get(g.id)||0;localCounts.set(g.id,i+1);const a=i*2.399,d=n.kind==='section'?0:12+Math.sqrt(i)*10;n.x=g.ax+Math.cos(a)*d;n.y=g.ay+Math.sin(a)*d*.7;});
   const sim = forceSimulation(nodes)
@@ -101,10 +82,10 @@ export function mountGraph(host, data, opts = {}) {
     .force("gx", forceX(d => galaxies.get(d.galaxy).ax).strength(d=>d.kind==='section'?.17:.105))
     .force("gy", forceY(d => galaxies.get(d.galaxy).ay).strength(d=>d.kind==='section'?.17:.105))
     .alphaDecay(.028).velocityDecay(.36);
-  const stars = [];
+  const stars = [],dustRandom=seededRandom("lumen-depth-field");
   if (wantStars) for (let i = 0, total = mini ? 90 : nodes.length ? 260 : 620; i < total; i++) {
-    const u = Math.random() * 2 - 1, angle = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u), r = .72 + Math.random() * .3;
-    stars.push({ x: s * Math.cos(angle) * r, y: u * r, z: s * Math.sin(angle) * r, a: .22 + Math.random() * .5, tw: .3 + Math.random(), phase: Math.random() * 6.28, size: Math.random() < .035 ? 1.6 : .7 });
+    const u = dustRandom() * 2 - 1, angle = dustRandom() * Math.PI * 2, s = Math.sqrt(1 - u * u), r = .72 + dustRandom() * .3;
+    stars.push({ x: s * Math.cos(angle) * r, y: u * r, z: s * Math.sin(angle) * r, a: .22 + dustRandom() * .5, tw: .3 + dustRandom(), phase: dustRandom() * 6.28, size: dustRandom() < .035 ? 1.6 : .7 });
   }
   const view = { x: 0, y: 0, k: 1, angle:0 }, target = { x: 0, y: 0, k: 1, angle:0 };
   let inputActive=false;
@@ -140,6 +121,7 @@ export function mountGraph(host, data, opts = {}) {
   let downAt = null, moved = false, pinch = null, multiGesture = false;
   listen(canvas, "pointerdown", e => {
     if (e.button !== undefined && e.button !== 0) return;
+    atlas.pause();
     canvas.setPointerCapture?.(e.pointerId); canvas.focus?.({ preventScroll: true });
     Object.assign(target,view);
     pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
@@ -154,6 +136,7 @@ export function mountGraph(host, data, opts = {}) {
     wake();
   });
   listen(canvas, "pointermove", e => {
+    if(e.pointerType==="mouse"&&!pointers.size&&!mini){pointer.tx=clamp(e.offsetX/Math.max(1,W)*2-1,-1,1);pointer.ty=clamp(e.offsetY/Math.max(1,H)*2-1,-1,1);wake();}
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
     if (pinch && pointers.size >= 2 && !mini) {
       const [a, b] = [...pointers.values()], cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
@@ -177,13 +160,13 @@ export function mountGraph(host, data, opts = {}) {
       else { const n = was || hit(e.offsetX, e.offsetY); if (n && selected === n) onOpen(n); else select(n); }
     }
     pinch = null; downAt = null;
-    if (!pointers.size) { multiGesture = false; moved = false; }
+    if (!pointers.size) { multiGesture = false; moved = false;atlas.resume(); }
     wake();
   }
   listen(canvas, "pointerup", e => finishPointer(e));
   listen(canvas, "pointercancel", e => finishPointer(e, true));
   listen(canvas, "lostpointercapture", e => finishPointer(e, true));
-  listen(canvas, "pointerleave", () => { hover = null; wake(); });
+  listen(canvas, "pointerleave", () => { hover = null;pointer.tx=pointer.ty=0; wake(); });
   listen(canvas, "wheel", e => {
     if (mini) return; e.preventDefault();
     const k = clamp(target.k * Math.exp(-e.deltaY * .0015), .08, 6), wx = (e.offsetX - W / 2 - target.x) / target.k, wy = (e.offsetY - H / 2 - target.y) / target.k;
@@ -201,6 +184,7 @@ export function mountGraph(host, data, opts = {}) {
     wake();
   });
   function updatePreferences() {
+    tintCache.clear();
     sky = ["sky", "light"].includes(document.documentElement.dataset.theme); palette = sky ? palettes.sky : palettes.space;
     reduceMotion = motionQuery.matches || document.documentElement.dataset.motion === "calm";
     if (reduceMotion) { nodes.forEach(n => { n.vis = shown(n) ? 1 : 0; }); }
@@ -209,35 +193,40 @@ export function mountGraph(host, data, opts = {}) {
   listen(window, "lumen-theme-changed", updatePreferences); listen(window, "lumen-motion-changed", updatePreferences);
   if (motionQuery.addEventListener) listen(motionQuery, "change", updatePreferences);
   listen(document, "visibilitychange", () => {
-    if (document.hidden) { if (raf !== null) cancelAnimationFrame(raf); raf = null; sim.stop(); }
-    else { last = -Infinity; if (!settled || sim.alpha() > .01) sim.restart(); wake(); }
+    if (document.hidden) { if (raf !== null) cancelAnimationFrame(raf); raf = null;last=null;atlas.pause(); sim.stop(); }
+    else { last = null;atlas.resume(); if (!settled || sim.alpha() > .01) sim.restart(); wake(); }
   });
-  const ro = new ResizeObserver(() => {
-    if (destroyed) return;
-    const r = host.getBoundingClientRect(); W = Math.max(0, r.width); H = Math.max(0, r.height); dpr = canvasPixelRatio(W,H,globalThis.devicePixelRatio||1);
-    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high"; canvas.style.width = W + "px"; canvas.style.height = H + "px";
-    if (!userMoved&&!inputActive) fit(true); wake();
-  });
-  ro.observe(host);
+  function resize(){
+    if(destroyed)return;
+    const r=host.getBoundingClientRect(),changed=W!==r.width||H!==r.height;
+    W=Math.max(0,r.width);H=Math.max(0,r.height);dpr=canvasPixelRatio(W,H,globalThis.devicePixelRatio||1);
+    const width=Math.round(W*dpr),height=Math.round(H*dpr);
+    if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height;ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";}
+    canvas.style.width=W+"px";canvas.style.height=H+"px";
+    if(changed&&!userMoved&&!inputActive)fit(true);wake();
+  }
+  const ro=new ResizeObserver(resize);ro.observe(host);listen(window,"resize",resize);
   function text(str, x, y, { font = SANS, size = 11, weight = 400, color = rgba(palette.ink, .9), align = "left", base = "middle", spacing = 0 } = {}) {
     ctx.font = `${weight} ${size}px ${font}`; ctx.textAlign = align; ctx.textBaseline = base; ctx.fillStyle = color;
-    ctx.shadowColor = sky ? "rgba(255,252,255,.95)" : "rgba(10,8,30,.95)"; ctx.shadowBlur = 9;   // names stay legible over moving light
+    ctx.shadowColor = sky ? "rgba(255,252,255,.65)" : "rgba(10,8,30,.85)"; ctx.shadowBlur = 3;
     if ("letterSpacing" in ctx) ctx.letterSpacing = `${spacing}px`;
     ctx.fillText(str, x, y); ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
   }
   function atmosphere(t) {
     if (!stars.length) return;
     const empty = !nodes.length, radius = Math.max(W,H)*.65;
-    const cx=W/2+view.x*.025,cy=H/2+view.y*.025;
-    const rotation = reduceMotion ? .3 : t * .000023, cr = Math.cos(rotation), sr = Math.sin(rotation);
-    if(empty&&!mini){const size=Math.min(W*.95,H*.7,550);ctx.save();ctx.translate(cx,cy);ctx.rotate(reduceMotion?-.2:t*.000026-.2);ctx.globalAlpha=.88;ctx.drawImage(galaxySprite(sky,0,size*dpr),-size/2,-size/2,size,size);ctx.restore();}
+    const cx=W/2,cy=H/2;
+    const rotation = .3+t*.000023, cr = Math.cos(rotation), sr = Math.sin(rotation);
+    if(empty&&!mini){const size=Math.min(W*.95,H*.7,550);ctx.save();ctx.translate(cx,cy);ctx.rotate(t*.000026-.2);ctx.globalAlpha=.88;ctx.drawImage(atlas.get(sky,0,size*dpr),-size/2,-size/2,size,size);ctx.restore();}
     for (const s of stars) {
       const x = s.x * cr - s.z * sr, z = s.x * sr + s.z * cr, depth = clamp((z + 1.2) / 2.2, .05, 1);
       const twinkle = reduceMotion ? 1 : .96 + .04 * Math.sin(t * .00025 * s.tw + s.phase);
-      const px = cx + x * radius, py = cy + s.y * radius;
+      const lens=1/(1-z*.16),parallax=2+depth*8;
+      const px=cx+x*radius*lens+view.x*(.015+depth*.025)+pointer.x*parallax,py=cy+s.y*radius*lens+view.y*(.015+depth*.025)+pointer.y*parallax;
       ctx.globalAlpha = s.a * depth * twinkle * (mini ? .55 : empty ? 1 : sky ? .42 : .6);
       ctx.fillStyle = s.size > 1 ? palette.bridge : palette.dust;
-      ctx.fillRect(px, py, s.size, s.size);
+      if(px<-4||px>W+4||py<-4||py>H+4)continue;
+      ctx.beginPath();ctx.arc(px,py,s.size*(.35+depth*.25),0,Math.PI*2);ctx.fill();
       if (empty && s.size > 1 && depth > .65) { ctx.globalAlpha *= .5; const size = 8; ctx.drawImage(glow(palette.halo), px - size, py - size, size * 2, size * 2); }
     }
     ctx.globalAlpha = 1;
@@ -247,37 +236,41 @@ export function mountGraph(host, data, opts = {}) {
     if (W < 1 || H < 1) return;
     const interacting=pointers.size>0||!settled||Math.abs(target.k-view.k)+Math.abs(target.angle-view.angle)>.01||Math.abs(target.x-view.x)+Math.abs(target.y-view.y)>.5;
     const frameInterval=interacting?1000/60:1000/30;
-    if (!needsDraw && !reduceMotion && time - last < frameInterval - 1) { raf = requestAnimationFrame(frame); return; }
-    const t = time - t0; last = time; needsDraw = false;
+    if (!needsDraw && !reduceMotion && last!==null && time - last < frameInterval - 1) { raf = requestAnimationFrame(frame); return; }
+    const elapsed=last===null?1000/60:Math.min(64,Math.max(0,time-last));last=time;needsDraw=false;
+    if(!reduceMotion)sceneTime+=elapsed;
+    const t=sceneTime,e=reduceMotion?1:motionResponse(elapsed);
     if (!settled && sim.alpha() < .06) { settled = true; if (!userMoved&&!inputActive) fit(); }
-    const e = reduceMotion ? 1 : .12;
     view.x += (target.x - view.x) * e; view.y += (target.y - view.y) * e; view.k += (target.k - view.k) * e;
     view.angle += (target.angle-view.angle)*e;
+    pointer.x+=((reduceMotion?0:pointer.tx)-pointer.x)*(reduceMotion?1:motionResponse(elapsed,320));
+    pointer.y+=((reduceMotion?0:pointer.ty)-pointer.y)*(reduceMotion?1:motionResponse(elapsed,320));
     const active = selected || hover, q = query.toLowerCase(), lit = active ? new Set([active.id, ...nbrs.get(active.id)]) : null;
     for (const n of nodes) {
       const alive = reduceMotion || t > n.born ? 1 : 0, want = !shown(n) ? 0 : lit ? lit.has(n.id) ? 1 : .13 : q ? n.title.toLowerCase().includes(q) ? 1 : .13 : 1;
-      n.vis += (want * alive - n.vis) * (reduceMotion ? 1 : .11);
+      n.vis += (want * alive - n.vis) * e;
       const amp = reduceMotion ? 0 : n.kind === "concept" ? 1.3 : .65;
-      n.dx = Math.sin(t * .00028 + n.phase) * amp; n.dy = Math.cos(t * .00024 + n.phase * 1.3) * amp;
+      if(!reduceMotion){n.dx = Math.sin(t * .00028 + n.phase) * amp; n.dy = Math.cos(t * .00024 + n.phase * 1.3) * amp;}
+      n.emphasis+=((n===active?1:0)-n.emphasis)*e;
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H); atmosphere(t);
     ctx.translate(W / 2 + view.x, H / 2 + view.y); ctx.rotate(view.angle); ctx.scale(view.k, view.k);
     for (const g of galaxies.values()) { g.sx = 0; g.sy = 0; g.n = 0; g.far = 0; }
     for (const n of nodes) if (n.vis > .05) { const g = galaxies.get(n.galaxy); g.sx += n.x; g.sy += n.y; g.n++; }
-    for (const g of galaxies.values()) if (g.n) { g.cx += ((g.core?.x??g.sx/g.n)-g.cx)*.12;g.cy += ((g.core?.y??g.sy/g.n)-g.cy)*.12; }
+    for (const g of galaxies.values()) if (g.n) { g.cx += ((g.core?.x??g.sx/g.n)-g.cx)*e;g.cy += ((g.core?.y??g.sy/g.n)-g.cy)*e; }
     for (const n of nodes) if (n.vis > .05) { const g = galaxies.get(n.galaxy); g.far = Math.max(g.far, Math.hypot(n.x - g.cx, n.y - g.cy)); }
     for (const g of galaxies.values()) {
-      if (!g.n) continue;g.rad+=(Math.max(g.footprint,g.far+16)-g.rad)*(reduceMotion?1:.08);
+      if (!g.n) continue;g.rad+=(Math.max(g.footprint,g.far+16)-g.rad)*(reduceMotion?1:motionResponse(elapsed,200));
       if(mini)continue;
-      const dim=active&&active.galaxy!==g.id?.48:1,spin=g.spin+(reduceMotion?0:t*.000026);
+      const dim=active&&active.galaxy!==g.id?.48:1,spin=g.spin+t*.000026;
       const size=g.rad*3.2,center=screenPoint({x:g.cx,y:g.cy},view,W,H),reach=size*view.k/2;
       if(center.x+reach<0||center.x-reach>W||center.y+reach<0||center.y-reach>H)continue;
-      ctx.save();ctx.translate(g.cx,g.cy);ctx.rotate(spin);ctx.globalAlpha=dim*(sky?.85:.9);ctx.drawImage(galaxySprite(sky,g.index,size*view.k*dpr),-size/2,-size/2,size,size);ctx.restore();
+      ctx.save();ctx.translate(g.cx,g.cy);ctx.rotate(spin);ctx.globalAlpha=dim*(sky?.85:.9);ctx.drawImage(atlas.get(sky,g.index,size*view.k*dpr),-size/2,-size/2,size,size);ctx.restore();
     }
     ctx.globalCompositeOperation = "source-over";
     for (const l of links) {
       const s = l.source, d = l.target, highlighted = active && (s === active || d === active), want = Math.min(s.vis, d.vis);
-      l.vis += (want - l.vis) * (reduceMotion ? 1 : .15); if (l.vis < .02) continue;
+      l.vis += (want - l.vis) * e; if (l.vis < .02) continue;
       const sx = s.x + s.dx, sy = s.y + s.dy, tx = d.x + d.dx, ty = d.y + d.dy;
       ctx.beginPath(); ctx.moveTo(sx, sy);
       ctx.quadraticCurveTo((sx+tx)/2+(ty-sy)*.13,(sy+ty)/2-(tx-sx)*.13,tx,ty);
@@ -285,16 +278,16 @@ export function mountGraph(host, data, opts = {}) {
     }
     for (const n of nodes) {
       if (n.vis < .02) continue;
-      const c=colorOf(n),x=n.x+n.dx,y=n.y+n.dy,birth=reduceMotion?1:ease((t-n.born)/900),light=starAppearance(n.kind,n.r,view.k,n===active);
-      const radius=light.corePx*birth/view.k,halo=light.haloPx*birth/view.k;if(radius<=0)continue;
-      const twinkle=reduceMotion?1:.86+.14*Math.sin(t*.0011+n.phase*3.1);
-      ctx.globalAlpha=n.vis*light.haloOpacity*n.luminance*twinkle;ctx.drawImage(glow(c),x-halo,y-halo,halo*2,halo*2);
-      if(n.kind==='section'||n===active){const rays=halo*(n===active?1.25:.95)*(.92+.08*twinkle);ctx.globalAlpha=n.vis*(n===active?.95:.7)*twinkle;ctx.drawImage(sparkle(c,sky?palette.core:'#ffffff'),x-rays,y-rays,rays*2,rays*2);}
+      const c=colorOf(n),x=n.x+n.dx,y=n.y+n.dy,birth=reduceMotion?1:ease((t-n.born)/700),light=starAppearance(n.kind,n.r,view.k,false);
+      const radius=light.corePx*birth/view.k,halo=(light.haloPx+(30-light.haloPx)*n.emphasis)*birth/view.k;if(radius<=0)continue;
+      const twinkle=.86+.14*Math.sin(t*.0011+n.phase*3.1);
+      ctx.globalAlpha=n.vis*(light.haloOpacity+(.85-light.haloOpacity)*n.emphasis)*n.luminance*twinkle;ctx.drawImage(glow(c),x-halo,y-halo,halo*2,halo*2);
+      if(n.kind==='section'||n.emphasis>.01){const rays=halo*(.95+.30*n.emphasis)*(.92+.08*twinkle);ctx.globalAlpha=n.vis*(n.kind==='section'?.7:.95*n.emphasis)*twinkle;ctx.drawImage(sparkle(c,sky?palette.core:'#ffffff'),x-rays,y-rays,rays*2,rays*2);}
       ctx.globalAlpha=n.vis*n.luminance;ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.fillStyle=palette.core;ctx.fill();
     }
     ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;ctx.setTransform(dpr,0,0,dpr,0,0);
     if (hudFor && !mini) {
-      hudT += ((selected === hudFor ? 1 : 0) - hudT) * (reduceMotion ? 1 : .12);
+      hudT += ((selected === hudFor ? 1 : 0) - hudT) * e;
       if (hudT > .01) {
         const n=hudFor,p=screenPoint({x:n.x+n.dx,y:n.y+n.dy},view,W,H);
         const title=n.title.length>36?n.title.slice(0,34)+'…':n.title;
@@ -328,7 +321,7 @@ export function mountGraph(host, data, opts = {}) {
   sim.on("end.lumen", () => { settled = true; if (!userMoved&&!inputActive) fit(); wake(); });
   updatePreferences();
   document.fonts?.ready?.then(()=>{if(!destroyed)wake();}).catch(()=>{});
-  if (document.hidden) sim.stop();
+  if (document.hidden){sim.stop();atlas.pause();}
   return {
     setFilter(f) { Object.assign(filter, f); if (selected && !shown(selected)) select(null); wake(); },
     setQuery(s) { query = String(s || ""); wake(); },
@@ -338,6 +331,6 @@ export function mountGraph(host, data, opts = {}) {
     rotateBy(angle) { if(!Number.isFinite(angle))return;const p=rotatePoint(target,angle);target.x=p.x;target.y=p.y;target.angle+=angle;userMoved=true;wake(); },
     clear() { select(null); },
     fit() { home(); },
-    destroy() { if (destroyed) return; destroyed = true; if (raf !== null) cancelAnimationFrame(raf); raf = null; sim.on("tick.lumen", null).on("end.lumen", null).stop(); releaseDrag(); ro.disconnect(); cleanups.forEach(fn => fn()); canvas.remove(); },
+    destroy() { if (destroyed) return; destroyed = true; if (raf !== null) cancelAnimationFrame(raf); raf = null; sim.on("tick.lumen", null).on("end.lumen", null).stop(); releaseDrag(); ro.disconnect(); cleanups.forEach(fn => fn());atlas.destroy();tintCache.clear(); canvas.remove(); },
   };
 }

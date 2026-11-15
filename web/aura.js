@@ -1,4 +1,4 @@
-/* Lumen's atmosphere: a living sky of flowing light, sparkles and slow star-fall.
+/* Lumen's atmosphere: a living sky of flowing light and fixed, shimmering stars.
    Decorative only: no library content or network requests. */
 (() => {
   "use strict";
@@ -14,11 +14,9 @@
     const size = rand() < .12 ? 15 + rand() * 7 : 6 + rand() * 7;   // smaller than your own stars, so knowledge leads
     return `<i style="left:${(2 + rand() * 96).toFixed(1)}%;top:${(3 + rand() * 92).toFixed(1)}%;--s:${size.toFixed(0)}px;--d:${(3.5 + rand() * 6).toFixed(1)}s;--delay:-${(rand() * 9).toFixed(1)}s"></i>`;
   }).join("");
-  const rain = Array.from({ length: 8 }, (_, i) =>
-    `<i style="left:${(6 + i * 12.2 + rand() * 6).toFixed(1)}%;--h:${(70 + rand() * 120).toFixed(0)}px;--d:${(17 + rand() * 16).toFixed(1)}s;--delay:-${(rand() * 30).toFixed(1)}s"></i>`).join("");
   atmosphere.innerHTML = '<canvas class="aura-flow"></canvas>'
     + '<div class="aura-layer aura-space"><i class="aura-cloud"></i></div><div class="aura-layer aura-sky"><i class="aura-cloud"></i></div>'
-    + `<div class="aura-sparkles">${sparkles}</div><div class="aura-rain">${rain}</div><div class="aura-grain"></div>`;
+    + `<div class="aura-sparkles">${sparkles}</div><div class="aura-grain"></div>`;
   document.body.prepend(atmosphere);
 
   const media = matchMedia("(prefers-reduced-motion: reduce)");
@@ -26,7 +24,7 @@
   const isCalm = () => root.dataset.motion === "calm" || media.matches;
   const isReading = () => document.body.dataset.scene === "reading";
 
-  // ---- the flowing light: one small fragment shader, drawn at low resolution and scaled up.
+  // Flowing light uses a bounded, adaptive render target; knowledge stars render separately at retina resolution.
   const VERTEX = "attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}";
   const FRAGMENT = `
 #ifdef GL_FRAGMENT_PRECISION_HIGH
@@ -84,11 +82,12 @@ void main(){
     if (!gl) return null;
     let uRes, uTime, uSky, uPointer;
     function setup() {
-      const compile = (type, source) => { const s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s); return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null; };
+      const compile = (type, source) => { const s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s); if(gl.getShaderParameter(s,gl.COMPILE_STATUS))return s;gl.deleteShader(s);return null; };
       const vs = compile(gl.VERTEX_SHADER, VERTEX), fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
-      if (!vs || !fs) return false;
+      if (!vs || !fs){if(vs)gl.deleteShader(vs);if(fs)gl.deleteShader(fs);return false;}
       const program = gl.createProgram(); gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return false;
+      gl.deleteShader(vs);gl.deleteShader(fs);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)){gl.deleteProgram(program);return false;}
       gl.useProgram(program);
       gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);   // one full-screen triangle
@@ -101,38 +100,44 @@ void main(){
 
     let width = 0, height = 0, clock = 14, mix = isSky() ? 1 : 0, raf = null, lastTick = 0, lastDraw = -1e9, dirty = true, lost = false;
     const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+    let quality=1,slowFrames=0,steadyFrames=0;
     function resize() {
       const rect = canvas.getBoundingClientRect(), w = Math.max(1, rect.width), h = Math.max(1, rect.height);
-      // Soft light needs few pixels: about 220k, whatever the screen.
-      const scale = Math.max(.25, Math.min(.6, Math.sqrt(220000 / (w * h))));
+      // Full CSS resolution on phones, with a strict budget on larger screens.
+      const scale=Math.min(globalThis.devicePixelRatio||1,1.25,Math.sqrt(700000/(w*h)))*quality;
       const nw = Math.max(2, Math.round(w * scale)), nh = Math.max(2, Math.round(h * scale));
       if (nw !== width || nh !== height) { width = nw; height = nh; canvas.width = nw; canvas.height = nh; gl.viewport(0, 0, nw, nh); }
     }
     function frame(now) {
       raf = null;
-      if (lost) return;
+      if (lost||document.hidden){lastTick=0;return;}
       const dt = lastTick ? Math.min(80, now - lastTick) : 16; lastTick = now;
       const live = !document.hidden && !isCalm() && !isReading();
-      const goal = isSky() ? 1 : 0, fading = Math.abs(goal - mix) > .002;
-      if (live) clock += dt / 1000;
-      mix = fading ? mix + (goal - mix) * Math.min(1, dt / 320) : goal;
-      pointer.x += (pointer.tx - pointer.x) * Math.min(1, dt / 900); pointer.y += (pointer.ty - pointer.y) * Math.min(1, dt / 900);
+      const goal = isSky() ? 1 : 0, fading = !isCalm() && Math.abs(goal - mix) > .002;
+      if(live){
+        clock+=dt/1000;
+        slowFrames=dt>45?slowFrames+1:0;steadyFrames=dt<23?steadyFrames+1:0;
+        if(slowFrames>=8&&quality>.55){quality=Math.max(.55,quality*.82);slowFrames=0;dirty=true;}
+        else if(steadyFrames>=180&&quality<1){quality=Math.min(1,quality+.08);steadyFrames=0;dirty=true;}
+      }
+      mix = fading ? mix + (goal - mix) * (1-Math.exp(-dt/320)) : goal;
+      pointer.x += ((isCalm()?0:pointer.tx) - pointer.x) * (1-Math.exp(-dt/900)); pointer.y += ((isCalm()?0:pointer.ty) - pointer.y) * (1-Math.exp(-dt/900));
       if (dirty || ((live || fading) && now - lastDraw >= 31)) {   // about 30 frames a second is plenty for slow light
         resize();
         gl.uniform2f(uRes, width, height); gl.uniform1f(uTime, clock); gl.uniform1f(uSky, mix); gl.uniform2f(uPointer, pointer.x, pointer.y);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
+        atmosphere.classList.add("aura-gl");
         lastDraw = now; dirty = false;
       }
       if (live || fading) raf = requestAnimationFrame(frame); else lastTick = 0;
     }
-    function refresh() { dirty = true; if (raf === null && !lost) raf = requestAnimationFrame(frame); }
+    function refresh(){dirty=true;if(document.hidden){if(raf!==null)cancelAnimationFrame(raf);raf=null;lastTick=0;return;}if(raf===null&&!lost)raf=requestAnimationFrame(frame);}
     canvas.addEventListener("webglcontextlost", event => { event.preventDefault(); lost = true; if (raf !== null) cancelAnimationFrame(raf); raf = null; atmosphere.classList.remove("aura-gl"); });
-    canvas.addEventListener("webglcontextrestored", () => { lost = !setup(); width = height = 0; if (!lost) { atmosphere.classList.add("aura-gl"); refresh(); } });
+    canvas.addEventListener("webglcontextrestored", () => { lost = !setup(); width = height = 0; if (!lost){lastTick=0;refresh();} });
     window.addEventListener("resize", refresh);
     if (matchMedia("(pointer: fine)").matches) window.addEventListener("pointermove", event => {
       pointer.tx = event.clientX / Math.max(1, innerWidth) - .5; pointer.ty = .5 - event.clientY / Math.max(1, innerHeight);
     }, { passive: true });
-    atmosphere.classList.add("aura-gl");
     return { refresh };
   }
   const flow = createFlow(typeof atmosphere.querySelector === "function" ? atmosphere.querySelector(".aura-flow") : null);

@@ -1,4 +1,9 @@
-// Pure scene calculations. Camera and rendering never change library records.
+// Scene calculations never change library records.
+export function seededRandom(seed){
+  let value=2166136261;for(const char of String(seed))value=Math.imul(value^char.charCodeAt(0),16777619);
+  return()=>{value+=0x6D2B79F5;let n=value;n=Math.imul(n^n>>>15,n|1);n^=n+Math.imul(n^n>>>7,n|61);return ((n^n>>>14)>>>0)/4294967296;};
+}
+export function motionResponse(elapsed,tau=130){return 1-Math.exp(-Math.max(0,elapsed)/tau);}
 export function canvasPixelRatio(width,height,deviceRatio=1){
   return Math.max(.5,Math.min(Number(deviceRatio)||1,3,Math.sqrt(14000000/Math.max(1,width*height))));
 }

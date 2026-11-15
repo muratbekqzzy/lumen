@@ -13,7 +13,6 @@
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --ease: cubic-bezier(.22, 1, .36, 1);
   --sparkle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g'%3E%3Cstop offset='0' stop-color='%23fff6ea' stop-opacity='.75'/%3E%3Cstop offset='.3' stop-color='%23e9d4ff' stop-opacity='.22'/%3E%3Cstop offset='1' stop-color='%23e9d4ff' stop-opacity='0'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='22' fill='url(%23g)'/%3E%3Cpath d='M32 1C33 23 41 31 63 32C41 33 33 41 32 63C31 41 23 33 1 32C23 31 31 23 32 1Z' fill='%23fffaf2'/%3E%3C/svg%3E");
-  --rain: rgba(233, 220, 255, .34);
   color-scheme: dark;
 }
 :root[data-theme="sky"], :root[data-theme="light"] {
@@ -26,7 +25,6 @@
   --glass: rgba(253, 250, 255, .66); --floating: #faf6fd;
   --shadow: 0 2px 7px rgba(70, 50, 110, .04), 0 16px 44px rgba(70, 50, 110, .08);
   --sparkle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.95'/%3E%3Cstop offset='.35' stop-color='%23d79ad3' stop-opacity='.38'/%3E%3Cstop offset='1' stop-color='%23d79ad3' stop-opacity='0'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='24' fill='url(%23g)'/%3E%3Cpath d='M32 1C33 23 41 31 63 32C41 33 33 41 32 63C31 41 23 33 1 32C23 31 31 23 32 1Z' fill='%23fff'/%3E%3C/svg%3E");
-  --rain: rgba(150, 110, 190, .30);
   color-scheme: light;
 }
 
@@ -467,14 +465,15 @@ body { isolation: isolate; overflow: hidden; transition: background-color .65s e
 .main { position: relative; view-transition-name: lumen-content; }
 .lumen-atmosphere { position: fixed; z-index: 0; inset: 0; overflow: hidden; pointer-events: none; opacity: 1; transition: opacity .9s ease; contain: strict; background: var(--bg); }
 body[data-scene="reading"] .lumen-atmosphere { opacity: .34; }
-/* The flowing light is drawn small by a shader and scaled up softly. */
-.aura-flow { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
-.aura-gl .aura-flow { display: block; transition: opacity 1.2s ease; }
-body[data-stars="1"] .aura-flow { opacity: .58; }
+/* The shader paints first, then fades in over the gradient fallback. */
+.aura-flow { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity 1.2s ease; }
+.aura-gl .aura-flow { opacity: 1; }
+body[data-stars="1"] .aura-gl .aura-flow { opacity: .58; }
 body[data-stars="1"] .aura-sparkles { opacity: .55; }
 /* Fallback when a device has no WebGL: still, soft gradients. */
 .aura-layer { position: absolute; inset: 0; opacity: 1; transition: opacity 1.2s ease; }
-.aura-gl .aura-layer { display: none; }
+:root[data-theme] .aura-gl .aura-layer { opacity: 0; }
+.aura-gl .aura-cloud { animation-play-state: paused; }
 .aura-layer i { display: block; position: absolute; pointer-events: none; }
 .aura-cloud { inset: -10%; transform: translate3d(0,0,0); animation: cloudDrift 42s ease-in-out infinite alternate; }
 .aura-space .aura-cloud {
@@ -490,27 +489,29 @@ body[data-stars="1"] .aura-sparkles { opacity: .55; }
 }
 :root[data-theme="sky"] .aura-sky, :root[data-theme="light"] .aura-sky { opacity: 1; }
 :root[data-theme="sky"] .aura-space, :root[data-theme="light"] .aura-space { opacity: 0; }
-/* Four-point sparkles and slow star-fall: opacity and transform only, so they never cost a repaint. */
-.aura-sparkles, .aura-rain { position: absolute; inset: 0; transition: opacity .9s ease; }
+/* Shimmer stays at a fixed point; brightness changes gently out of phase. */
+.aura-sparkles { position: absolute; inset: 0; transition: opacity .9s ease; }
 .aura-sparkles i { position: absolute; width: var(--s); height: var(--s); margin: calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
   background: var(--sparkle) center / contain no-repeat; opacity: .1; will-change: opacity, transform;
-  animation: sparkleTwinkle var(--d) ease-in-out var(--delay) infinite; }
-@keyframes sparkleTwinkle { 0%, 100% { opacity: .05; transform: scale(.5) rotate(0deg); } 50% { opacity: .7; transform: scale(1) rotate(10deg); } }
-.aura-rain i { position: absolute; top: 0; width: 1px; height: var(--h); background: linear-gradient(to bottom, transparent, var(--rain)); opacity: 0; will-change: opacity, transform;
-  animation: starFall var(--d) linear var(--delay) infinite; }
-.aura-rain i::after { content: ""; position: absolute; left: 50%; bottom: -8px; width: 16px; height: 16px; margin-left: -8px; background: var(--sparkle) center / contain no-repeat; }
-@keyframes starFall { 0% { transform: translate3d(0, -32vh, 0); opacity: 0; } 14% { opacity: .85; } 78% { opacity: .55; } 100% { transform: translate3d(0, 112vh, 0); opacity: 0; } }
-body[data-scene="reading"] .aura-sparkles, body[data-scene="reading"] .aura-rain { opacity: 0; }
+  animation: starShimmer var(--d) ease-in-out var(--delay) infinite; }
+@keyframes starShimmer {
+  0%,100% { opacity: .12; transform: scale(.94); }
+  24% { opacity: .30; transform: scale(.99); }
+  47% { opacity: .72; transform: scale(1.06); }
+  59% { opacity: .38; transform: scale(1); }
+  78% { opacity: .19; transform: scale(.96); }
+}
+body[data-scene="reading"] .aura-sparkles { opacity: 0; }
 .aura-grain { position: absolute; inset: 0; opacity: .16; mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1.4 -.2'/%3E%3C/filter%3E%3Cpath filter='url(%23n)' d='M0 0h180v180H0z'/%3E%3C/svg%3E");
 }
 :root[data-theme="sky"] .aura-grain, :root[data-theme="light"] .aura-grain { opacity: .10; }
 @keyframes cloudDrift { from { transform: translate3d(-2%, 1%, 0) scale(1); } to { transform: translate3d(3%, -2%, 0) scale(1.06); } }
 .aura-still .aura-cloud, body[data-scene="reading"] .aura-cloud,
-.aura-still .aura-sparkles i, .aura-still .aura-rain i,
-body[data-scene="reading"] .aura-sparkles i, body[data-scene="reading"] .aura-rain i { animation-play-state: paused; }
+.aura-still .aura-sparkles i,
+body[data-scene="reading"] .aura-sparkles i { animation-play-state: paused; }
 .aura-still .aura-sparkles i { opacity: .5; }
-@media (max-width: 700px) { .aura-sparkles i:nth-child(n+19), .aura-rain i:nth-child(n+5) { display: none; } }
+@media (max-width: 700px) { .aura-sparkles i:nth-child(n+19) { display: none; } }
 .side { background: var(--side); -webkit-backdrop-filter: blur(22px) saturate(1.15); backdrop-filter: blur(22px) saturate(1.15); transition: background-color .65s ease, border-color .45s ease; }
 .brand { font-size: 13px; padding: 27px 22px 25px; gap: 16px; letter-spacing: .29em; }
 .brand .mark { width: 22px; height: 22px; position: relative; border-radius: 50%; flex: none; background: transparent; box-shadow: none; animation: none; }
@@ -579,8 +580,7 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
 :root[data-motion="calm"] *, :root[data-motion="calm"] *::before, :root[data-motion="calm"] *::after { animation: none !important; transition: none !important; }
 :root[data-motion="calm"]::view-transition-old(lumen-content), :root[data-motion="calm"]::view-transition-new(lumen-content) { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  .aura-cloud, .aura-sparkles i, .aura-rain i, .brand .mark::after { animation: none; }
-  .aura-rain { display: none; }
+  .aura-cloud, .aura-sparkles i, .brand .mark::after { animation: none; }
   ::view-transition-old(lumen-content), ::view-transition-new(lumen-content) { animation: none; }
 }
 @media (min-width: 901px) and (max-width: 1220px) {
@@ -791,3 +791,25 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
 :root[data-theme="sky"] .card .bar, :root[data-theme="light"] .card .bar { background: color-mix(in srgb, var(--c, transparent) 60%, var(--muted)); box-shadow: none; }
 /* Floating controls sit on the moving sky as frosted glass. */
 .graph-tools, .graph-panel, .universe-zoom, .u-continue, .signin-banner { -webkit-backdrop-filter: blur(18px) saturate(1.2); backdrop-filter: blur(18px) saturate(1.2); }
+
+/* Quiet foreground surfaces do not sample the moving light behind them. */
+.immersive-universe .graph-tools, .immersive-universe .graph-panel, .universe-zoom, .u-continue, .signin-banner, .menu-btn {
+  background: var(--floating); backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+/* Porcelain and sage keep navigation calm in both atmospheres. */
+.side {
+  --bg: #edf0e8; --panel: #f7f8f3; --side: #edf0e8;
+  --ink: #304039; --ink-2: #526159; --muted: #616e65;
+  --accent: #526d5e; --accent-soft: rgba(82,109,94,.10); --hover: rgba(82,109,94,.055);
+  --line: rgba(74,94,79,.12); --line-2: rgba(74,94,79,.23); --glass: #f4f6ef;
+  --ok: #47725a; --warn: #947440; --danger: #a26059;
+  color: var(--ink); background: var(--side); backdrop-filter: none; -webkit-backdrop-filter: none;
+  box-shadow: 1px 0 0 rgba(74,94,79,.05);
+}
+:root[data-theme] .side .brand .mark::before { background: #526d5e; }
+.side .brand .mark::after { background: radial-gradient(circle,rgba(130,154,136,.22),rgba(130,154,136,0) 70%); }
+:root[data-theme] .side .glyph:not(.emoji) {
+  color: color-mix(in srgb,var(--c,var(--ink)) 30%,var(--ink));
+  border-color: color-mix(in srgb,var(--c,var(--line-2)) 26%,var(--line-2));
+  background: color-mix(in srgb,var(--c,var(--panel)) 12%,var(--panel)) !important;
+}

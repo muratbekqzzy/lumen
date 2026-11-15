@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const geometry = fs.readFileSync('web/universe.js','utf8').replace(/export /g,'');
-const source = geometry+'\n'+fs.readFileSync('web/graph.js', 'utf8').replace(/^import .*;\n/gm, '').replace('export function mountGraph', 'function mountGraph');
+const atlasSource=fs.readFileSync('web/galaxy.js','utf8').replace(/^import .*;\n/gm,'').replace(/export /g,'');
+const source = geometry+'\n'+atlasSource+'\n'+fs.readFileSync('web/graph.js', 'utf8').replace(/^import .*;\n/gm, '').replace('export function mountGraph', 'function mountGraph');
 
 function target() {
  const events = new Map();
@@ -11,6 +12,7 @@ function target() {
  dispatch(n, props = {}) { for (const fn of [...events.get(n) || []]) fn({type:n, preventDefault(){}, ...props}); }};
 }
 function fixture({empty = false, theme = 'space', motion = 'full', width = 800, height = 650, pixelRatio = 2, data:customData} = {}) {
+ const idle=new Map();
  const calls = [], frames = new Map(), observers = [], simulations = [], canvases = [];
  let timestamp = 0, serial = 0;
  const drawing = new Proxy({createRadialGradient:() => ({addColorStop(){}})}, {
@@ -30,15 +32,15 @@ function fixture({empty = false, theme = 'space', motion = 'full', width = 800, 
    on(name,fn){if(fn===null)this.events.delete(name);else this.events.set(name,fn);return this}};
   simulations.push(sim);return sim;
  }
- const context={document,window,matchMedia:()=>media,ResizeObserver:class{constructor(fn){this.fn=fn;this.disconnected=false;observers.push(this);}observe(){this.fn();}disconnect(){this.disconnected=true;}},
+ const context={document,window,requestIdleCallback(fn){idle.set(++serial,fn);return serial;},cancelIdleCallback(id){idle.delete(id);},matchMedia:()=>media,ResizeObserver:class{constructor(fn){this.fn=fn;this.disconnected=false;observers.push(this);}observe(){this.fn();}disconnect(){this.disconnected=true;}},
   requestAnimationFrame(fn){frames.set(++serial,fn);return serial;},cancelAnimationFrame(id){frames.delete(id);},performance:{now:()=>timestamp},devicePixelRatio:pixelRatio,forceSimulation,forceLink,
   forceManyBody:chain,forceCollide:chain,forceX:chain,forceY:chain,console};
  vm.createContext(context);vm.runInContext(source,context);
  const data=customData||(empty?{nodes:[],edges:[]}:{nodes:[{id:'s1',title:'Dreams',kind:'section',section:'s1',color:'#c4b5fd'},{id:'n1',title:'Memory',kind:'note',section:'s1',parent:'s1',degree:1}],edges:[{source:'s1',target:'n1',type:'contains'}]});
  let selects=0,opens=0;
  const graph=context.mountGraph(host,data,{onSelect(){selects++;},onOpen(){opens++;}});
- function advance(count=1){for(let i=0;i<count;i++){timestamp+=40;const queue=[...frames.values()];frames.clear();for(const fn of queue)fn(timestamp);}}
- return {graph,host,document,window,media,canvas:host.canvas,calls,frames,observers,sim:simulations[0],advance,get selects(){return selects},get opens(){return opens}};
+ function advance(count=1,step=40){for(let i=0;i<count;i++){timestamp+=step;const queue=[...frames.values()];frames.clear();for(const fn of queue)fn(timestamp);}}
+ return {idle,graph,host,document,window,media,canvas:host.canvas,calls,frames,observers,sim:simulations[0],advance,get selects(){return selects},get opens(){return opens}};
 }
 function point(type,id,x,y){return {pointerId:id,offsetX:x,offsetY:y,pointerType:type,button:0};}
 
@@ -52,11 +54,11 @@ test('dense universes cap visible labels on desktop and mobile',()=>{
 
 test('graph destruction removes preference, input, observer and animation resources',()=>{
  const f=fixture();f.advance(35);assert(f.calls.some(x=>x.method==='fillText'));
- f.graph.destroy();f.graph.destroy();assert.equal(f.frames.size,0);assert.equal(f.sim.stopped,true);assert(f.observers[0].disconnected);assert(f.canvas.removed);
+ f.graph.destroy();f.graph.destroy();assert.equal(f.frames.size,0);assert.equal(f.idle.size,0);assert.equal(f.sim.stopped,true);assert(f.observers[0].disconnected);assert(f.canvas.removed);
  for(const eventTarget of [f.canvas,f.window,f.document,f.media])for(const callbacks of eventTarget.events.values())assert.equal(callbacks.size,0);
 });
 test('empty libraries show decorative particles without inventing graph records',()=>{
- const f=fixture({empty:true});f.advance(2);assert.equal(f.sim.nodes.length,0);assert(f.calls.filter(x=>x.method==='fillRect').length>500);assert(!f.calls.some(x=>x.method==='fillText'));f.graph.destroy();
+ const f=fixture({empty:true});f.advance(2);assert.equal(f.sim.nodes.length,0);assert(f.calls.filter(x=>x.method==='arc').length>500);assert(!f.calls.some(x=>x.method==='fillText'));f.graph.destroy();
 });
 test('theme changes redraw dark labels for sky and bright labels for space',()=>{
  const f=fixture({motion:'calm'});f.advance(3);f.graph.focus('n1');f.advance();f.calls.length=0;
@@ -84,8 +86,13 @@ test('pinch movement pans around its moving midpoint and cannot become a tap',()
  f.canvas.dispatch('pointerup',point('touch',1,250,300));f.canvas.dispatch('pointerup',point('touch',2,450,300));assert.equal(f.selects,0);assert.equal(f.opens,0);f.graph.destroy();
 });
 test('hidden documents pause the simulation and resume without leaking an animation',()=>{
- const f=fixture();f.advance();f.document.hidden=true;f.document.dispatch('visibilitychange');assert.equal(f.frames.size,0);assert.equal(f.sim.stopped,true);
+ const f=fixture();f.advance();f.document.hidden=true;f.document.dispatch('visibilitychange');assert.equal(f.frames.size,0);assert.equal(f.idle.size,0);assert.equal(f.sim.stopped,true);
  f.document.hidden=false;f.document.dispatch('visibilitychange');assert.equal(f.frames.size,1);f.advance();assert.equal(f.frames.size,1);f.graph.destroy();
+});
+test('returning from a hidden tab preserves the animation phase instead of jumping through elapsed time',()=>{
+ const f=fixture();f.advance(35);const angle=()=>f.calls.filter(x=>x.method==='rotate').at(-1).args[0],before=angle();
+ f.document.hidden=true;f.document.dispatch('visibilitychange');f.advance(1,60000);f.document.hidden=false;f.document.dispatch('visibilitychange');f.advance();
+ assert(Math.abs(angle()-before)<.01);f.graph.destroy();
 });
 test('zero-sized hosts can resize to a short mobile viewport with finite fitting',()=>{
  const f=fixture({width:0,height:0,motion:'calm'});f.advance();assert.equal(f.frames.size,0);
