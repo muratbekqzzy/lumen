@@ -1,6 +1,6 @@
 // Lumen: offline cache for the GitHub Pages project-root deployment.
 const CACHE = "lumen-site-v3";
-const FILES = ["./", "index.html", "web/app.js", "web/spss.html", "web/graph.js", "web/style.css", "web/icon.svg", "cloud/cloud.js", "manifest.webmanifest"];
+const FILES = ["./", "index.html", "web/app.js", "web/spss.html", "web/graph.js", "web/style.css", "web/icon.svg", "cloud/cloud.js", "cloud/panopto.js", "manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
 });
