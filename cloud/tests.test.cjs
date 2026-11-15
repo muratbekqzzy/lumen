@@ -4,19 +4,20 @@ const vm=require("node:vm");
 const fs=require("node:fs");
 const {webcrypto}=require("node:crypto");
 const code=fs.readFileSync("cloud/cloud.js","utf8");
-function browser(){
- const saved=new Map(),session=new Map(),hooks={};
+function browser(options={}){
+ const saved=options.saved||new Map(),session=options.session||new Map(),hooks={};
+ if(options.credentials){const c=options.credentials;saved.set("lumen.cloud.sync.v1",JSON.stringify({owner:c.owner,repo:c.repo}));saved.set("lumen.cloud.auth.v1",JSON.stringify(c));}
  const localStorage={getItem:k=>saved.get(k)||null,setItem:(k,v)=>saved.set(k,v),removeItem:k=>saved.delete(k)};
  const sessionStorage={getItem:k=>session.get(k)||null,setItem:(k,v)=>session.set(k,v),removeItem:k=>session.delete(k)};
  const fakeElement=()=>({style:{},innerHTML:"",onclick:null,append(){},remove(){},querySelector(){return fakeElement()},addEventListener(){}});
  const document={head:{append(){}},body:{append(){}},activeElement:{matches:()=>false},createElement:fakeElement,querySelector(){return null},addEventListener(n,cb){hooks[n]=cb},hidden:false};
- const window={fetch:async()=>new Response("",{status:404}),addEventListener(){},dispatchEvent(){},location:{href:"https://example.github.io/lumen/"},navigator:{onLine:true}};
+ const window={fetch:options.fetch||async()=>new Response("",{status:404}),addEventListener(n,fn){hooks[n]=fn},dispatchEvent(){},location:{href:"https://example.github.io/lumen/"},navigator:{onLine:true}};
  const context={window,document,localStorage,sessionStorage,crypto:webcrypto,TextEncoder,TextDecoder,Response,URL,URLSearchParams,FormData,AbortController,
     Event, navigator:{onLine:true},location:{href:"https://example.github.io/lumen/"},setTimeout:()=>0,clearTimeout(){},setInterval(){},console,confirm:()=>true,alert:()=>{},btoa,atob};
  vm.createContext(context);
  vm.runInContext(code,context,{filename:"cloud/cloud.js"});
  vm.runInContext(fs.readFileSync("cloud/panopto.js","utf8"),context,{filename:"cloud/panopto.js"});
- return {window,localStorage};
+ return {window,localStorage,sessionStorage,hooks};
 }
 async function api(browser,method,path,body){
  const r=await browser.window.fetch("https://example.github.io"+path,{method,body:body===undefined?undefined:JSON.stringify(body)});
@@ -90,4 +91,75 @@ test("Panopto import and corrected captions are saved in Lumen offline storage",
  const edited=await api(b,"GET","/api/lectures/"+n.id);
  assert.equal(edited.chunks[0].said[0].text,"hippocampus");
  assert.equal(edited.generated["study-pack.md"],"# Corrected");
+});
+
+
+/* Real sync path against a fake GitHub Contents API. No GitHub secrets or
+   network calls are used. Both browser instances share one encrypted file. */
+function fakeGithub(){
+ let file=null, sha=0, writes=0, reads=0;
+ return {
+  request:async (url,opts={})=>{
+   const path=new URL(url).pathname;
+   if(!path.startsWith("/repos/"))throw Error("Unexpected GitHub request "+url);
+   if(path.endsWith("/contents/lumen-vault.enc.json")){
+    if((opts.method||"GET")==="PUT"){
+     const obj=JSON.parse(opts.body);
+     if(file&&obj.sha!==String(sha))return new Response(JSON.stringify({message:"Conflict"}),{status:409,headers:{"Content-Type":"application/json"}});
+     if(!file&&obj.sha!==undefined)return new Response("Conflict",{status:409});
+     file=Buffer.from(obj.content,"base64").toString("utf8");sha++;writes++;
+     return new Response(JSON.stringify({content:{sha:String(sha)}}),{status:200,headers:{"Content-Type":"application/json"}});
+    }
+    reads++;
+    if(!file)return new Response("Not found",{status:404});
+    return new Response(JSON.stringify({sha:String(sha),size:file.length,content:Buffer.from(file).toString("base64")}),{status:200,headers:{"Content-Type":"application/json"}});
+   }
+   return new Response(JSON.stringify({private:true}),{status:200,headers:{"Content-Type":"application/json"}});
+  },
+  stats:()=>({reads,writes})
+ };
+}
+const creds={owner:"muratbekqzzy",repo:"lumen-personal-test",token:"github_pat_test",passphrase:"test-only-encryption-phrase"};
+test("encrypted sync publishes edits and another browser receives them",async()=>{
+ const remote=fakeGithub();
+ const a=browser({fetch:remote.request,credentials:creds});
+ const s=await api(a,"POST","/api/containers",{parent_id:"root",title:"Statistics"});
+ const n=await api(a,"POST","/api/notes",{parent_id:s.id,title:"Lecture A",body:"First draft"});
+ assert.equal(await a.window.LumenCloud.sync(),true);
+ const b=browser({fetch:remote.request,credentials:creds});
+ assert.equal(await b.window.LumenCloud.sync(),true);
+ assert.equal((await api(b,"GET","/api/notes/"+n.id)).body,"First draft");
+ await api(b,"PUT","/api/notes/"+n.id,{body:"Corrected from second device"});
+ assert.equal(await b.window.LumenCloud.sync(),true);
+ assert.equal(await a.window.LumenCloud.sync(),true);
+ assert.equal((await api(a,"GET","/api/notes/"+n.id)).body,"Corrected from second device");
+ assert(remote.stats().writes>=2);
+});
+test("simultaneous changes produce one stable conflict copy rather than overwrite",async()=>{
+ const remote=fakeGithub();
+ const a=browser({fetch:remote.request,credentials:creds});
+ const n=await api(a,"POST","/api/notes",{parent_id:"inbox",title:"My Notes",body:"Start"});
+ assert.equal(await a.window.LumenCloud.sync(),true);
+ const b=browser({fetch:remote.request,credentials:creds});
+ assert.equal(await b.window.LumenCloud.sync(),true);
+ await api(a,"PUT","/api/notes/"+n.id,{body:"A edited this"});
+ await api(b,"PUT","/api/notes/"+n.id,{body:"B edited this"});
+ assert.equal(await b.window.LumenCloud.sync(),true);
+ assert.equal(await a.window.LumenCloud.sync(),true);
+ assert.equal(await b.window.LumenCloud.sync(),true);
+ assert.equal(await a.window.LumenCloud.sync(),true);
+ const records=Object.values(a.window.LumenCloud.exportData().records);
+ const pair=records.filter(r=>r.id===n.id||r.title?.includes("conflict copy"));
+ assert.equal(pair.length,2,"Keep both versions, but no duplicate storm");
+ assert.deepEqual(new Set(pair.map(r=>r.body)),new Set(["A edited this","B edited this"]));
+ assert.equal((await api(b,"GET","/api/notes/"+n.id)).body,(await api(a,"GET","/api/notes/"+n.id)).body);
+});
+test("stored credentials let a fresh browser instance sync without clicking",async()=>{
+ const remote=fakeGithub(),storage=new Map();
+ const a=browser({saved:storage,fetch:remote.request,credentials:creds});
+ await api(a,"POST","/api/notes",{parent_id:"inbox",title:"Stay connected",body:"yes"});
+ assert.equal(await a.window.LumenCloud.sync(),true);
+ const reopened=browser({saved:storage,fetch:remote.request});
+ assert.equal(await reopened.window.LumenCloud.sync(),true);
+ assert((await api(reopened,"GET","/api/tree")).inbox.children.some(n=>n.title==="Stay connected"));
 });
