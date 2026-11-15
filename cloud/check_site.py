@@ -3,6 +3,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlsplit, unquote
 import json
+import re
 import sys
 
 class References(HTMLParser):
@@ -35,6 +36,14 @@ for ref in parser.refs:
     path = root / unquote(parsed.path.lstrip("/"))
     assert path.is_file(), f"Broken local asset reference: {ref} at {path}"
     assert path.stat().st_size > 0, f"Empty site asset: {ref}"
+# Follow local JavaScript imports too: a working shell must not hide a missing graph engine.
+for module in root.rglob("*.js"):
+    code = module.read_text(encoding="utf-8")
+    static = re.findall(r'import\s+(?:[^;\n]*?\sfrom\s+)?[\"\'](\.[^\"\']+)[\"\']', code)
+    dynamic = re.findall(r'import\(\s*[\"\'](\.[^\"\']+)[\"\']\s*\)', code)
+    for dependency in static + dynamic:
+        target = module.parent / dependency
+        assert target.is_file(), f"Missing module dependency: {dependency} from {module}"
 manifest = json.loads((root / "manifest.webmanifest").read_text(encoding="utf-8"))
 assert manifest["name"] == "Lumen"
 assert manifest["start_url"] == "./"

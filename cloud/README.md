@@ -7,7 +7,7 @@ Original browser app: https://muratbekqzzy.github.io/lumen/
 ## Use it on any device
 
 Open the synced app and sign in with the same ChatGPT account on each device.
-The app is private to its owner. No GitHub token, repository, encryption password,
+The app is publicly accessible; each signed-in account has its own private library. No GitHub token, repository, encryption password,
 Python installation, terminal command, or running Mac is needed for browser sync.
 Settings shows the signed-in account and the current sync status.
 
@@ -23,6 +23,15 @@ and three-way merging. Concurrent edits to the same record keep a deterministic
 **(conflict copy)**; review both versions in the library. Undo is a new synchronized
 change. Incoming updates do not replace an unsaved editor draft. The sync
 indicator distinguishes locally saved changes, syncing, synced, offline and errors.
+
+## Sky, Space and motion
+
+Use the **Sky / Space** control at the bottom of the sidebar to switch between
+lavender twilight and a dark starfield. The choice stays on this device. The
+Universe graph has a **Drift / Still** control for gentle motion; your device's
+reduced-motion setting always takes priority. Hidden tabs pause graph animation.
+Notes and study pages keep a quieter atmosphere for reading. The empty Universe
+is decorative until you create your own sections; it never adds sample records.
 
 ## Existing notes
 

@@ -1,14 +1,20 @@
 <!doctype html>
 <html lang="en">
-<script>try { if (JSON.parse(localStorage.getItem("lumen.theme")) === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
 <head>
   <meta charset="utf-8">
+  <script>
+    try {
+      const theme = JSON.parse(localStorage.getItem("lumen.theme"));
+      document.documentElement.dataset.theme = theme === "sky" || theme === "light" ? "sky" : "space";
+      document.documentElement.dataset.motion = JSON.parse(localStorage.getItem("lumen.motion")) === "calm" ? "calm" : "full";
+    } catch { document.documentElement.dataset.theme = "space"; }
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Lumen</title>
   <link rel="icon" href="/icon.svg">
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#07080a">
+  <meta name="theme-color" content="#090a16">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -40,6 +46,7 @@
   </div>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+  <script defer src="aura.js"></script>
   <script type="module" src="app.js"></script>
   <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));</script>
 </body>

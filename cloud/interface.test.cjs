@@ -1,0 +1,131 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync('web/app.js', 'utf8');
+const prefix = source.slice(0, source.indexOf('// ------------------------------------------------------------------ boot'))
+  .replace(/^const loadGraph = .*$/m, 'const loadGraph = () => graphLoader();');
+const syncRefresh = source.slice(source.indexOf('let remoteRefreshNeeded=false;'), source.indexOf('addEventListener("lumen-remote-updated"'));
+function interfaceApp({stored = {}, reduced = false, request, graphLoader} = {}) {
+  const elements = new Map(), storage = new Map(Object.entries(stored).map(([k, v]) => ['lumen.' + k, JSON.stringify(v)]));
+  const events = [], mounts = [], pages = [], attributes = new Map();
+  const media = {matches: reduced, addEventListener() {}};
+  class Element {
+    constructor(id = '') { this.id = id; this.isConnected = true; this.value = ''; this.dataset = {}; this.attributes = new Map(); this.style = {}; this.children = []; this.handlers = {}; this._html = ''; this.classList = {toggle: () => false, contains: () => false, remove() {}, add() {}}; }
+    set innerHTML(value) {
+      this._html = value;
+      if (this.id === 'main') {
+        for (const [id, el] of elements) if (!['main', 'q', 'theme', 'nav-top', 'tree', 'nav-foot'].includes(id)) el.isConnected = false;
+        pages.push(value);
+      }
+      for (const match of value.matchAll(/\bid="([^"]+)"/g)) { const el = new Element(match[1]); el.parentElement = this; elements.set(match[1], el); }
+    }
+    get innerHTML() { return this._html; }
+    setAttribute(key, value) { this.attributes.set(key, value); }
+    getAttribute(key) { return this.attributes.get(key); }
+    addEventListener(type, handler) { this.handlers[type] = handler; }
+    append(el) { this.children.push(el); el.parentElement = this; }
+    remove() { this.isConnected = false; }
+    querySelector() { return null; }
+    querySelectorAll() { return []; }
+  }
+  for (const id of ['main', 'q', 'theme', 'nav-top', 'tree', 'nav-foot']) elements.set(id, new Element(id));
+  const document = {documentElement: {dataset: {}}, activeElement: null,
+    querySelector(selector) { if (selector[0] === '#') return elements.get(selector.slice(1)) || null; return null; },
+    querySelectorAll() { return []; }, createElement: () => new Element(), body: new Element('body')};
+  const tree = {id: 'root', kind: 'root', title: 'Knowledge', children: [], inbox: {id: 'inbox', children: []}, archive: {id: 'archive', children: []}};
+  const context = {document, location: {hash: '#/'}, history: {replaceState() {}}, window: {dispatchEvent(e) {events.push(e.type);}}, localStorage: {getItem: k => storage.get(k) || null, setItem: (k, v) => storage.set(k, v)}, matchMedia: () => media, Event, console, FormData,
+    setTimeout: () => 0, clearTimeout() {}, clearInterval() {}, setInterval: () => 0, confirm: () => true, navigator: {},
+    fetch: async (path) => new Response(JSON.stringify(await (request?.(path) ?? (path === '/api/tree' ? tree : {nodes: [], edges: []}))), {headers: {'Content-Type': 'application/json'}}),
+    graphLoader: graphLoader || (() => Promise.resolve({mountGraph(host, data) { const graph = {host, data, destroy() {graph.destroyed = true;}, setFilter() {}, setQuery() {}, clear() {}, fit() {}, focus() {}}; mounts.push(graph); return graph; }}))};
+  vm.createContext(context); vm.runInContext(prefix + '\n' + syncRefresh, context);
+  vm.runInContext('TREE = ' + JSON.stringify(tree), context);
+  return {context, document, elements, storage, media, events, mounts, pages, run: code => vm.runInContext(code, context)};
+}
+const deferred = () => { let resolve; const promise = new Promise(r => resolve = r); return {promise, resolve}; };
+
+test('Sky and Space migrate old preferences, persist switching, and announce theme changes', () => {
+  const app = interfaceApp();
+  app.run('setAtmosphere("light")');
+  assert.equal(app.document.documentElement.dataset.theme, 'sky');
+  assert.equal(app.elements.get('theme').getAttribute('aria-pressed'), 'true');
+  assert.match(app.elements.get('theme').innerHTML, /Sky/);
+  assert.equal(app.storage.get('lumen.theme'), '"sky"');
+  app.run('setAtmosphere("dark")');
+  assert.equal(app.document.documentElement.dataset.theme, 'space');
+  assert.equal(app.elements.get('theme').getAttribute('aria-pressed'), 'false');
+  assert.match(app.elements.get('theme').getAttribute('aria-label'), /Switch to Sky/);
+  assert.deepEqual(app.events, ['lumen-theme-changed', 'lumen-theme-changed']);
+});
+test('motion preference is persistent and device reduced-motion wins over Drift', () => {
+  const app = interfaceApp({reduced: true});
+  app.run('setMotion("full")');
+  assert.equal(app.run('motionIsCalm()'), true);
+  assert.equal(app.storage.get('lumen.motion'), '"full"');
+  app.media.matches = false;
+  assert.equal(app.run('motionIsCalm()'), false);
+  app.run('setMotion("calm")');
+  assert.equal(app.run('motionIsCalm()'), true);
+  assert.equal(app.storage.get('lumen.motion'), '"calm"');
+});
+test('recent lectures sort correctly with browser millisecond dates and Python ISO dates', () => {
+  const app = interfaceApp();
+  const ordered = app.run('JSON.stringify([{id:"older",created:1700000000000},{id:"new",created:1800000000000},{id:"iso",created:"2024-01-01T00:00:00Z"}].sort(newestFirst).map(x=>x.id))');
+  assert.deepEqual(JSON.parse(ordered), ['new', 'iso', 'older']);
+});
+test('a late note response cannot replace the newer library route', async () => {
+  const note = deferred();
+  const app = interfaceApp({request: path => path === '/api/notes/a' ? note.promise : {nodes: [], edges: []}});
+  app.context.location.hash = '#/note/a';
+  const first = app.run('route()');
+  app.context.location.hash = '#/library';
+  await app.run('route()');
+  const library = app.elements.get('main').innerHTML;
+  note.resolve({id: 'a', title: 'Late private draft', body: '', breadcrumbs: []});
+  await first;
+  assert.equal(app.elements.get('main').innerHTML, library);
+  assert.match(library, /<h1>Library<\/h1>/);
+});
+test('a superseded graph load never mounts a canvas into the newer page', async () => {
+  const graph = deferred(); let mounts = 0;
+  const app = interfaceApp({graphLoader: () => graph.promise});
+  const first = app.run('route()');
+  app.context.location.hash = '#/library'; await app.run('route()');
+  graph.resolve({mountGraph() {mounts++;}}); await first;
+  assert.equal(mounts, 0);
+  assert.match(app.elements.get('main').innerHTML, /<h1>Library<\/h1>/);
+});
+test('an empty library still mounts the particle universe without adding sample knowledge', async () => {
+  const app = interfaceApp();
+  await app.run('route()');
+  assert.equal(app.mounts.length, 1);
+  assert.equal(app.mounts[0].data.nodes.length, 0);
+  assert.equal(app.mounts[0].data.edges.length, 0);
+  assert.match(app.elements.get('main').children[0].innerHTML, /A little light becomes a universe/);
+  assert.equal(app.document.documentElement.dataset.view, 'universe');
+  assert.equal(app.elements.get('gmotion').getAttribute('aria-pressed'), 'true');
+});
+test('unchanged remote state leaves the active universe camera and canvas intact', async () => {
+  const app = interfaceApp();
+  await app.run('route()');
+  app.run('refreshAfterSync()');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.mounts.length, 1);
+  assert.equal(app.mounts[0].destroyed, undefined);
+});
+test('native view transitions perform rendering inside the update callback', async () => {
+  const app = interfaceApp();
+  await app.run('route()');
+  let called = false, callbackFinished = false;
+  app.document.startViewTransition = update => {
+    called = true;
+    const done = Promise.resolve().then(update).then(() => {callbackFinished = true;});
+    return {ready: done, updateCallbackDone: done, finished: done, skipTransition() {}};
+  };
+  app.context.location.hash = '#/library';
+  await app.run('route()');
+  assert.equal(called, true);
+  assert.equal(callbackFinished, true);
+  assert.equal(app.mounts[0].destroyed, true);
+  assert.match(app.elements.get('main').innerHTML, /<h1>Library<\/h1>/);
+});

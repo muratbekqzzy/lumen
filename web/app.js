@@ -1,6 +1,6 @@
 // Lumen - front end. Plain JS, no build step.
 let graphMod = null;
-const loadGraph = async () => (graphMod ||= await import("./graph.js"));
+const loadGraph = () => (graphMod ||= import("./graph.js").catch((error) => { graphMod = null; throw error; }));
 let GRAPH = null; // live graph instance on the current page
 const $ =(s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -9,6 +9,45 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem("lumen." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem("lumen." + k, JSON.stringify(v)); } catch {} },
 };
+
+// Two atmospheres share the same library. Older light/dark preferences migrate once.
+const motionMedia = matchMedia("(prefers-reduced-motion: reduce)");
+const normalizeTheme = (value) => ["sky", "light"].includes(value) ? "sky" : "space";
+const currentTheme = () => normalizeTheme(document.documentElement.dataset.theme);
+const motionIsCalm = () => motionMedia.matches || document.documentElement.dataset.motion === "calm";
+function updateAtmosphereControls() {
+  const sky = currentTheme() === "sky", theme = $("#theme");
+  if (theme) {
+    theme.innerHTML = `${sky ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/><circle cx="12" cy="12" r="4"/></svg>' : ICONS.moon}<span>${sky ? "Sky" : "Space"}</span>`;
+    theme.title = `Switch to ${sky ? "Space" : "Sky"}`;
+    theme.setAttribute("aria-label", `Atmosphere: ${sky ? "Sky" : "Space"}. Switch to ${sky ? "Space" : "Sky"}`);
+    theme.setAttribute("aria-pressed", String(sky));
+  }
+  const motion = $("#gmotion");
+  if (motion) {
+    const calm = motionIsCalm();
+    motion.textContent = calm ? "Still" : "Drift";
+    motion.classList.toggle("on", !calm);
+    motion.setAttribute("aria-pressed", String(!calm));
+    motion.disabled = motionMedia.matches;
+    motion.title = motionMedia.matches ? "Reduced motion follows your device settings" : calm ? "Turn gentle motion on" : "Pause gentle motion";
+    motion.setAttribute("aria-label", motion.title);
+  }
+}
+function setAtmosphere(value, persist = true) {
+  const next = normalizeTheme(value);
+  document.documentElement.dataset.theme = next;
+  if (persist) store.set("theme", next);
+  updateAtmosphereControls();
+  window.dispatchEvent(new Event("lumen-theme-changed"));
+}
+function setMotion(value, persist = true) {
+  document.documentElement.dataset.motion = value === "calm" ? "calm" : "full";
+  if (persist) store.set("motion", document.documentElement.dataset.motion);
+  updateAtmosphereControls();
+  window.dispatchEvent(new Event("lumen-motion-changed"));
+}
+motionMedia.addEventListener?.("change", () => { updateAtmosphereControls(); window.dispatchEvent(new Event("lumen-motion-changed")); });
 
 // luminous section colours: they glow as galaxies in the universe
 const COLORS = ["#a9c7ff", "#ffd27a", "#ff9fb2", "#8fe3bf", "#c7b3ff", "#7fd6ff", "#ffb38a", "#e6e9ee"];
@@ -61,8 +100,13 @@ function allowEditorReplacement(nextHash) {
   return true;
 }
 
+let treeLoadVersion = 0;
 async function loadTree() {
-  TREE = await api("GET", "/api/tree");
+  const version = ++treeLoadVersion;
+  const incoming = await api("GET", "/api/tree");
+  if (version !== treeLoadVersion) return false;
+  const changed = JSON.stringify(incoming) !== JSON.stringify(TREE);
+  TREE = incoming;
   NODES.clear(); PARENT.clear();
   const walk = (n, parent) => {
     NODES.set(n.id, n);
@@ -73,6 +117,7 @@ async function loadTree() {
   walk(TREE.inbox, null);
   walk(TREE.archive, null);
   renderSidebar();
+  return changed;
 }
 const isContainer = (n) => ["section", "module", "inbox", "archive", "root"].includes(n?.kind);
 const kids = (n) => n?.children || [];
@@ -87,6 +132,10 @@ function fmtDate(s) {
   if (!s) return "";
   const d = new Date(s);
   return isNaN(d) ? s : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+function newestFirst(a, b) {
+  const stamp = value => typeof value === "number" ? value : (Date.parse(value) || Number(value) || 0);
+  return stamp(b.created) - stamp(a.created);
 }
 function fmtDur(sec) { if (!sec) return ""; const m = Math.round(sec / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; }
 function countDeep(n, kind) { let c = 0; const w = (x) => { kids(x).forEach((k) => { if (k.kind === kind) c++; w(k); }); }; w(n); return c; }
@@ -134,7 +183,7 @@ function renderSidebar() {
   $("#nav-foot").innerHTML = `
     <div class="row" data-id="archive" data-nav="#/n/archive" title="Archive">${ICONS.archive}<span class="label">Archive</span></div>
     <div class="row" data-nav="#/history" title="History">${ICONS.clock}<span class="label">History</span></div>
-    <button class="icon-btn" id="theme" title="Light / dark">${ICONS.moon}</button>
+    <button class="atmosphere-toggle" id="theme" type="button" aria-label="Switch atmosphere">${ICONS.moon}<span>Space</span></button>
     ${window.LumenCloud ? `<button class="icon-btn lumen-settings-btn" id="lumen-sync-settings" title="Settings" aria-label="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1.05 1.57V21h-4v-.03A1.7 1.7 0 0 0 8.9 19.4 1.7 1.7 0 0 0 7 19.74l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 13.95H3v-4h.03A1.7 1.7 0 0 0 4.6 8.9 1.7 1.7 0 0 0 4.26 7l-.06-.06 2.86-2.86.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10.05 3H14a1.7 1.7 0 0 0 1.05 1.6 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10.05V14a1.7 1.7 0 0 0-1.6 1z"/></svg><span class="lumen-sync-dot" aria-hidden="true"></span></button>` : ""}`;
   $$(".side .row").forEach((r) => {
     r.addEventListener("click", (e) => {
@@ -146,11 +195,8 @@ function renderSidebar() {
     if (r.dataset.id) dropTarget(r, r.dataset.id, "y");
   });
   if ($("#lumen-sync-settings")) { $("#lumen-sync-settings").onclick = () => window.LumenCloud.settings(); window.LumenCloud.updateIndicator?.(); }
-  $("#theme").onclick = () => {
-    const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
-    if (next === "dark") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = "light";
-    store.set("theme", next);
-  };
+  $("#theme").onclick = () => setAtmosphere(currentTheme() === "sky" ? "space" : "sky");
+  updateAtmosphereControls();
   markActive();
 }
 function toggle(id) { expanded.has(id) ? expanded.delete(id) : expanded.add(id); store.set("expanded", [...expanded]); renderSidebar(); }
@@ -441,7 +487,7 @@ function pageLibrary() {
   const sections = kids(TREE).filter(isContainer);
   const lectures = []; const walk = (n) => kids(n).forEach((k) => { if (k.kind === "lecture") lectures.push(k); walk(k); });
   walk(TREE); walk(TREE.inbox);
-  lectures.sort((a, b) => (b.created || "").localeCompare(a.created || ""));
+  lectures.sort(newestFirst);
   const hr = new Date().getHours();
   const greet = hr < 5 ? "Good night" : hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
   const notes = countDeep(TREE, "note") + countDeep(TREE.inbox, "note");
@@ -465,22 +511,24 @@ function pageLibrary() {
 
 // ---- graph
 const KIND_LABEL = { section: "Section", module: "Module", lecture: "Lecture", note: "Note", concept: "Concept" };
-async function pageGraph() {
+let graphSignature = "";
+async function pageGraph(isCurrent = () => true) {
   const hr = new Date().getHours();
   const greet = hr < 5 ? "Good night" : hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
   const lectures = []; const walk = (n) => kids(n).forEach((k) => { if (k.kind === "lecture") lectures.push(k); walk(k); });
   walk(TREE); walk(TREE.inbox);
-  lectures.sort((a, b) => (b.created || "").localeCompare(a.created || ""));
+  lectures.sort(newestFirst);
   const inbox = kids(TREE.inbox).length;
   main().innerHTML = `<div class="graph-page space">
     <div class="graph-host" id="ghost"></div>
     <div class="graph-ui">
-      <div class="graph-title"><h1>${greet}.</h1><p id="gstats"></p></div>
+      <div class="graph-title"><div class="graph-eyebrow">Your knowledge, in orbit</div><h1>${greet}.</h1><p id="gstats" aria-live="polite"></p></div>
       <div class="graph-tools">
-        <input id="gq" type="search" placeholder="Find a star" autocomplete="off">
-        <button class="pill on" data-f="structure">Structure</button>
-        <button class="pill on" data-f="concepts">Concepts</button>
-        <button class="pill" id="gfit" title="Fit to screen">Fit</button>
+        <input id="gq" type="search" placeholder="Find a star" aria-label="Find a star in your knowledge" autocomplete="off">
+        <button class="pill on" data-f="structure" aria-pressed="true">Structure</button>
+        <button class="pill on" data-f="concepts" aria-pressed="true">Concepts</button>
+        <button class="pill" id="gfit" title="Fit universe to screen" aria-label="Fit universe to screen">Fit</button>
+        <button class="pill motion-toggle" id="gmotion" type="button" aria-pressed="true">Drift</button>
       </div>
     </div>
     <aside class="graph-panel" id="gpanel" hidden></aside>
@@ -491,19 +539,34 @@ async function pageGraph() {
     </div>
   </div>`;
   $("#u-first")?.addEventListener("click", (e) => { e.preventDefault(); containerDialog({}); });
+  const host = $("#ghost");
+  $("#gmotion").onclick = () => setMotion(motionIsCalm() ? "full" : "calm");
+  updateAtmosphereControls();
   const [g, data] = await Promise.all([loadGraph(), api("GET", "/api/graph")]);
+  if (!isCurrent() || !host?.isConnected) return;
+  graphSignature = JSON.stringify(data);
   const counts = data.nodes.reduce((a, n) => (a[n.kind] = (a[n.kind] || 0) + 1, a), {});
   $("#gstats").textContent = [["section", "sections"], ["module", "modules"], ["lecture", "lectures"], ["note", "notes"], ["concept", "concepts"]].filter(([k]) => counts[k]).map(([k, p]) => `${counts[k]} ${counts[k] === 1 ? p.slice(0, -1) : p}`).concat(`${data.edges.length} link${data.edges.length === 1 ? "" : "s"}`).filter(Boolean).join("  ·  ");
-  if (!data.nodes.length) { $("#ghost").innerHTML = `<div class="empty" style="margin:120px auto;max-width:420px"><h3>Nothing to connect yet</h3><p>Add sections, lectures and notes. Concepts written as [[Concept]] link everything together.</p></div>`; return; }
+  if (!data.nodes.length) {
+    $("#gstats").textContent = "A place for everything you discover.";
+    $(".u-dock")?.remove();
+    const welcome = document.createElement("div");
+    welcome.className = "universe-welcome";
+    welcome.innerHTML = `<span class="welcome-kicker">L U M E N</span><h2>A little light becomes a universe.</h2><p>Give a thought a home. Your notes, lectures and ideas will find their own constellations.</p><button class="btn primary" id="begin-universe">${ICONS.plus} Create a section</button>`;
+    host.parentElement.append(welcome);
+    $("#begin-universe").onclick = () => containerDialog({});
+  }
   const open = (n) => {
     if (!n) return;
     if (n.kind === "concept") go(`#/concept/${encodeURIComponent(n.title)}`);
     else go(hrefFor(n));
   };
-  GRAPH = g.mountGraph($("#ghost"), data, {
+  GRAPH = g.mountGraph(host, data, {
     onOpen: open,
     onSelect: (n, nb) => {
+      if (!isCurrent()) return;
       const p = $("#gpanel");
+      if (!p) return;
       if (!n) { p.hidden = true; return; }
       $("#ghint")?.remove();
       p.hidden = false;
@@ -516,14 +579,15 @@ async function pageGraph() {
       p.querySelectorAll("[data-id]").forEach((b) => b.onclick = () => GRAPH.focus(b.dataset.id));
     },
   });
-  $$(".graph-tools [data-f]").forEach((b) => b.onclick = () => { b.classList.toggle("on"); GRAPH.setFilter({ [b.dataset.f]: b.classList.contains("on") }); });
+  $$(".graph-tools [data-f]").forEach((b) => b.onclick = () => { const enabled = b.classList.toggle("on"); b.setAttribute("aria-pressed", String(enabled)); GRAPH?.setFilter({ [b.dataset.f]: enabled }); });
   $("#gfit").onclick = () => { GRAPH.clear(); GRAPH.fit(); };
   $("#gq").addEventListener("input", (e) => GRAPH.setQuery(e.target.value.trim()));
-  $("#gq").addEventListener("keydown", (e) => { if (e.key === "Enter") { const n = data.nodes.find((x) => x.title.toLowerCase().includes(e.target.value.trim().toLowerCase())); if (n) GRAPH.focus(n.id); } });
+  $("#gq").addEventListener("keydown", (e) => { const query = e.target.value.trim().toLowerCase(); if (e.key === "Enter" && query) { const n = data.nodes.find((x) => x.title.toLowerCase().includes(query)); if (n) GRAPH?.focus(n.id); } });
 }
 
-async function pageConcept(name) {
+async function pageConcept(name, isCurrent = () => true) {
   const c = await api("GET", `/api/concept/${encodeURIComponent(name)}`);
+  if (!isCurrent()) return;
   main().innerHTML = `<div class="page">${crumbs([], [{ title: "Universe", href: "#/" }])}
     <h1 class="title"><span class="concept-mark"></span>${h(c.name)}</h1>
     <div class="sub"><span class="chip">Concept</span><span>Mentioned in ${c.mentions.length} place${c.mentions.length === 1 ? "" : "s"}</span></div>
@@ -536,7 +600,9 @@ async function pageConcept(name) {
     const m = c.mentions[+el.dataset.i];
     go(m.kind === "lecture" ? `#/lecture/${m.id}/${m.part.startsWith("My Notes") ? "notes" : "pack"}` : m.kind === "note" ? `#/note/${m.id}` : `#/n/${m.id}`);
   });
+  const host = $("#lg");
   const [g, data] = await Promise.all([loadGraph(), api("GET", "/api/graph")]);
+  if (!isCurrent() || !host?.isConnected) return;
   const me = data.nodes.find((n) => n.kind === "concept" && n.title.toLowerCase() === c.name.toLowerCase()) || data.nodes.find((n) => n.title.toLowerCase() === c.name.toLowerCase());
   if (!me) { $("#lg").remove(); return; }
   // local neighbourhood: the concept, what mentions it, and their other concepts
@@ -545,7 +611,7 @@ async function pageConcept(name) {
   const first = new Set(keep);
   data.edges.forEach((e) => { if (first.has(e.source) && e.source !== me.id && keep.size < 60) keep.add(e.target); });
   const sub = { nodes: data.nodes.filter((n) => keep.has(n.id)), edges: data.edges.filter((e) => keep.has(e.source) && keep.has(e.target)) };
-  GRAPH = g.mountGraph($("#lg"), sub, { focusId: me.id, onOpen: (n) => n && (n.kind === "concept" ? go(`#/concept/${encodeURIComponent(n.title)}`) : go(hrefFor(n))), onSelect: () => {} });
+  GRAPH = g.mountGraph(host, sub, { focusId: me.id, onOpen: (n) => n && (n.kind === "concept" ? go(`#/concept/${encodeURIComponent(n.title)}`) : go(hrefFor(n))), onSelect: () => {} });
 }
 
 function cardHTML(n) {
@@ -615,9 +681,10 @@ function pageContainer(id) {
 // ---- lecture
 let LECTURE = null, poll;
 const KNOWN = { "study-pack.md": "Study pack", "flashcards.md": "Flashcards", "resources.md": "Further resources" };
-async function pageLecture(id, tab) {
+async function pageLecture(id, tab, isCurrent = () => true) {
   clearInterval(poll);
   const d = await api("GET", `/api/lectures/${id}`);
+  if (!isCurrent()) return;
   LECTURE = d;
   const m = d.meta;
   const gen = d.generated_html;
@@ -645,7 +712,7 @@ async function pageLecture(id, tab) {
   $("#ttl").onclick = () => renameDialog(NODES.get(id) || { id, title: m.title });
   $("#lmore").onclick = (e) => openMenu(e, NODES.get(id) || { id, title: m.title, kind: "lecture" });
   if ($("#edit-captions")) $("#edit-captions").onclick = () => window.LumenPanopto.edit(id);
-  if (busy) { poll = setInterval(async () => { const j = await api("GET", "/api/lectures/" + id); if (!["processing", "queued", "transcribing"].includes(j.meta.status)) { clearInterval(poll); await refresh(); } }, 5000); return; }
+  if (busy) { poll = setInterval(async () => { const j = await api("GET", "/api/lectures/" + id); if (!isCurrent()) return; if (!["processing", "queued", "transcribing"].includes(j.meta.status)) { clearInterval(poll); await refresh(); } }, 5000); return; }
   $$(".tab").forEach((b) => b.onclick = () => {
     const nextHash = `#/lecture/${id}/${b.dataset.t}`;
     if (!allowEditorReplacement(nextHash)) return;
@@ -738,8 +805,15 @@ function renderEditor(body, text, save, hint) {
   const editor = { element: ed, savedText: text || "", routeHash: location.hash, saving: false,
     accountId: window.LumenCloud?.activeAccountId || null };
   activeEditor = editor;
-  let t;
-  const preview = async () => { pv.innerHTML = await api("POST", "/api/render", { body: ed.value }); enhance(pv); };
+  let t, previewVersion = 0;
+  const preview = async () => {
+    const version = ++previewVersion, draft = ed.value;
+    try {
+      const html = await api("POST", "/api/render", { body: draft });
+      if (version !== previewVersion || !ed.isConnected || ed.value !== draft) return;
+      pv.innerHTML = html; enhance(pv);
+    } catch (error) { if (ed.isConnected) console.error("Could not preview note", error); }
+  };
   ed.addEventListener("input", () => { clearTimeout(t); t = setTimeout(preview, 350); button.textContent = ed.value === editor.savedText ? "Saved" : "Save •"; });
   const doSave = async () => {
     if (editor.saving) return;
@@ -765,8 +839,9 @@ function renderEditor(body, text, save, hint) {
   ed.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); doSave(); } });
   preview();
 }
-async function pageNote(id, edit) {
+async function pageNote(id, edit, isCurrent = () => true) {
   const n = await api("GET", `/api/notes/${id}`);
+  if (!isCurrent()) return;
   main().innerHTML = `<div class="page">${crumbs(n.breadcrumbs)}
     <h1 class="title"><span class="title-edit" id="ttl">${h(n.title)}</span></h1>
     <div class="sub"><span>${n.author && n.author !== "you" ? `Written by ${h(n.author)}` : "Your note"}</span><span>Updated ${fmtDate(n.updated || n.created)}</span>
@@ -781,10 +856,11 @@ async function pageNote(id, edit) {
 }
 
 // ---- search, history
-async function pageSearch(q) {
+async function pageSearch(q, isCurrent = () => true) {
   $("#q").value = q;
   main().innerHTML = `<div class="page"><h1 class="title">Search</h1><div class="sub">Results for “${h(q)}”</div><div class="results" id="res">Searching…</div></div>`;
   const rs = await api("GET", `/api/search?q=${encodeURIComponent(q)}`);
+  if (!isCurrent()) return;
   $("#res").innerHTML = rs.length ? rs.map((r, i) => `<div class="r" data-i="${i}"><div class="rt">${h(r.title)}</div>
     <div class="rp">${h(r.place || "")}${r.time ? ` · ${r.slide ? `slide ${r.slide} · ` : ""}at ${r.time}` : ""}${r.part?.startsWith("Generated") ? " · study material" : r.part?.startsWith("My Notes") ? " · your notes" : ""}</div>
     <div class="rs">${h(r.snippet).replace(/«/g, "<mark>").replace(/»/g, "</mark>")}</div></div>`).join("")
@@ -797,8 +873,9 @@ async function pageSearch(q) {
     else go(hrefFor(n || { id: r.id, kind: "note" }));
   });
 }
-async function pageHistory() {
+async function pageHistory(isCurrent = () => true) {
   const rows = await api("GET", "/api/history");
+  if (!isCurrent()) return;
   main().innerHTML = `<div class="page"><h1 class="title">History</h1>
     <div class="sub">Every change is saved as a version in your vault, so nothing is ever lost.</div>
     <div class="toolbar"><button class="btn" id="undo">Undo the latest change</button></div>
@@ -808,40 +885,50 @@ async function pageHistory() {
 function pageMissing() { main().innerHTML = `<div class="page"><div class="empty"><h3>Not found</h3><p>This item may have been moved or archived.</p><a class="btn" href="#/">Go home</a></div></div>`; }
 
 // ------------------------------------------------------------------ router
-let firstRoute = true;
-async function route() {
-  if (!allowEditorReplacement(location.hash)) return;
-  // smooth cross-fade between pages where the browser supports it
-  if (!firstRoute && document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    let done; const ready = new Promise((r) => (done = r));
-    document.startViewTransition(() => Promise.race([ready, new Promise((r) => setTimeout(r, 450))]));
-    await renderRoute(); done(); return;
-  }
+let firstRoute = true, routeVersion = 0, activeTransition = null;
+async function route(options = {}) {
+  const hash = location.hash;
+  if (!allowEditorReplacement(hash)) return;
+  const version = ++routeVersion;
+  const isCurrent = () => version === routeVersion && location.hash === hash;
+  activeTransition?.skipTransition?.();
+  const render = () => isCurrent() ? renderRoute(hash, isCurrent) : undefined;
+  const animate = !firstRoute && options.animate !== false && document.startViewTransition && !motionIsCalm();
   firstRoute = false;
-  await renderRoute();
+  if (!animate) return render();
+  const transition = document.startViewTransition(render);
+  activeTransition = transition;
+  // ready/finished reject when a newer navigation skips the snapshot.
+  transition.ready?.catch(() => {});
+  transition.finished?.catch(() => {}).finally(() => { if (activeTransition === transition) activeTransition = null; });
+  try { await transition.updateCallbackDone; } catch (error) { if (isCurrent()) console.error(error); }
 }
-async function renderRoute() {
-  const [path, query] = location.hash.replace(/^#/, "").split("?");
+async function renderRoute(hash = location.hash, isCurrent = () => true) {
+  const [path, query] = hash.replace(/^#/, "").split("?");
   const parts = path.split("/").filter(Boolean);
   markActive();
+  clearInterval(poll);
   GRAPH?.destroy(); GRAPH = null;
   main().scrollTop = 0;
   main().classList.toggle("full", !parts.length || parts[0] === "graph");
+  document.documentElement.dataset.view = !parts.length || parts[0] === "graph" ? "universe" : "reading";
+  window.dispatchEvent(new Event("lumen-scene-changed"));
   try {
-    if (!parts.length || parts[0] === "graph") await pageGraph();
+    if (!parts.length || parts[0] === "graph") await pageGraph(isCurrent);
     else if (parts[0] === "library") pageLibrary();
-    else if (parts[0] === "concept") await pageConcept(decodeURIComponent(parts.slice(1).join("/")));
+    else if (parts[0] === "concept") await pageConcept(decodeURIComponent(parts.slice(1).join("/")), isCurrent);
     else if (parts[0] === "n") pageContainer(parts[1]);
-    else if (parts[0] === "lecture") await pageLecture(parts[1], parts[2]);
-    else if (parts[0] === "note") await pageNote(parts[1], query === "edit");
-    else if (parts[0] === "search") await pageSearch(decodeURIComponent(parts.slice(1).join("/")));
-    else if (parts[0] === "history") await pageHistory();
+    else if (parts[0] === "lecture") await pageLecture(parts[1], parts[2], isCurrent);
+    else if (parts[0] === "note") await pageNote(parts[1], query === "edit", isCurrent);
+    else if (parts[0] === "search") await pageSearch(decodeURIComponent(parts.slice(1).join("/")), isCurrent);
+    else if (parts[0] === "history") await pageHistory(isCurrent);
     else pageMissing();
-  } catch (e) { console.error(e); pageMissing(); }
+  } catch (e) { if (isCurrent()) { console.error(e); pageMissing(); } }
 }
 
 // ------------------------------------------------------------------ boot
-if (store.get("theme", "dark") === "light") document.documentElement.dataset.theme = "light";
+setAtmosphere(store.get("theme", "space"), false);
+setMotion(store.get("motion", "full"), false);
 $("#add-section").onclick = () => containerDialog({});
 let qt;
 $("#q").addEventListener("input", (e) => { clearTimeout(qt); const v = e.target.value.trim(); qt = setTimeout(() => v && go(`#/search/${encodeURIComponent(v)}`), 300); });
@@ -860,7 +947,17 @@ function refreshAfterSync(){
    return;
  }
  remoteRefreshNeeded=false;
- loadTree().then(route).catch(console.error);
+ const hash = location.hash;
+ loadTree().then(async (changed) => {
+   if (!changed || hash !== location.hash) return;
+   // A text-only sync need not recreate the universe or reset its camera.
+   if (GRAPH && (!hash || hash === "#/" || hash === "#/graph")) {
+     const next = await api("GET", "/api/graph");
+     if (hash !== location.hash || JSON.stringify(next) === graphSignature) return;
+   }
+   if (hasUnsavedDraft() || activeEditor?.saving) { remoteRefreshNeeded = true; return; }
+   return route({ animate: false });
+ }).catch(console.error);
 }
 addEventListener("lumen-remote-updated", refreshAfterSync);
 document.addEventListener("focusout",()=>{if(remoteRefreshNeeded)setTimeout(refreshAfterSync,150)});

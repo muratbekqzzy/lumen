@@ -32,19 +32,19 @@ jobs:
         run: |
           node --check cloud/cloud.js
           node --check cloud/migrate.js
-          node --test cloud/migrate.test.cjs cloud/editor.test.cjs
+          node --test cloud/*.test.cjs
           node --test hosted/*.test.mjs
           node --check cloud/panopto.js
-          node --test cloud/tests.test.cjs
           python -m unittest discover -s cloud -p '*_test.py' -v
           python -m py_compile tools/panopto_from_link.py
+          node --check web/aura.js
           node --check web/app.js
           node --check web/graph.js
       - name: Assemble static site
         run: |
           mkdir -p _site/web _site/cloud
           cp index.html manifest.webmanifest sw.js _site/
-          cp web/app.js web/graph.js web/style.css web/icon.svg web/spss.html _site/web/
+          cp web/app.js web/aura.js web/force.js web/graph.js web/style.css web/icon.svg web/spss.html _site/web/
           cp cloud/cloud.js cloud/panopto.js cloud/hosting.js cloud/migrate.js _site/cloud/
           touch _site/.nojekyll
           python cloud/check_site.py _site

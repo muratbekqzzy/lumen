@@ -3,7 +3,7 @@ import { readFile, mkdir, writeFile, rm, cp } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const files = ['index.html', 'manifest.webmanifest', 'sw.js', 'web/app.js', 'web/graph.js', 'web/style.css', 'web/icon.svg', 'web/spss.html', 'cloud/cloud.js', 'cloud/panopto.js', 'cloud/hosting.js', 'cloud/migrate.js'];
+const files = ['index.html', 'manifest.webmanifest', 'sw.js', 'web/app.js', 'web/aura.js', 'web/force.js', 'web/graph.js', 'web/style.css', 'web/icon.svg', 'web/spss.html', 'cloud/cloud.js', 'cloud/panopto.js', 'cloud/hosting.js', 'cloud/migrate.js'];
 const types = {html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',svg:'image/svg+xml',webmanifest:'application/manifest+json'};
 const assets = {};
 for (const name of files) {

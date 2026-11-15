@@ -1,14 +1,20 @@
 <!doctype html>
 <html lang="en">
-<script>try { if (JSON.parse(localStorage.getItem("lumen.theme")) === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
 <head>
   <meta charset="utf-8">
+  <script>
+    try {
+      const theme = JSON.parse(localStorage.getItem("lumen.theme"));
+      document.documentElement.dataset.theme = theme === "sky" || theme === "light" ? "sky" : "space";
+      document.documentElement.dataset.motion = JSON.parse(localStorage.getItem("lumen.motion")) === "calm" ? "calm" : "full";
+    } catch { document.documentElement.dataset.theme = "space"; }
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Lumen</title>
   <link rel="icon" href="web/icon.svg">
   <link rel="apple-touch-icon" href="web/icon.svg">
   <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#07080a">
+  <meta name="theme-color" content="#090a16">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,13 +26,13 @@
 <body>
   <div class="app">
     <aside class="side">
-      <div class="brand"><span class="mark"></span>Lumen</div>
+      <div class="brand"><span class="mark" aria-hidden="true"></span>Lumen</div>
       <div class="searchbox">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         <input id="q" type="search" placeholder="Search everything" autocomplete="off">
         <kbd>⌘K</kbd>
       </div>
-      <a href="web/spss.html" style="display:flex;align-items:center;gap:9px;margin:0 14px 12px;padding:10px 12px;border:1px solid rgba(169,199,255,.22);border-radius:10px;background:rgba(169,199,255,.07);color:var(--ink);text-decoration:none;font-size:13px;font-weight:600"><span aria-hidden="true">◈</span> SPSS Studio <span style="margin-left:auto;color:var(--muted);font-size:11px;font-weight:400">Learn →</span></a>
+      <a href="web/spss.html" class="studio-link"><span aria-hidden="true">◈</span> SPSS Studio <span style="margin-left:auto;color:var(--muted);font-size:11px;font-weight:400">Learn →</span></a>
       <div class="nav-scroll">
         <div class="nav" id="nav-top"></div>
         <div class="nav-label"><span>Sections</span><button class="icon-btn" id="add-section" title="New section">
@@ -45,6 +51,7 @@
   <script defer src="cloud/cloud.js"></script>
   <script defer src="cloud/migrate.js"></script>
   <script defer src="cloud/panopto.js"></script>
+  <script defer src="web/aura.js"></script>
   <script type="module" src="web/app.js"></script>
   <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
 </body>

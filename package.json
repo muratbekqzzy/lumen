@@ -8,11 +8,14 @@
   },
   "scripts": {
     "build": "node hosted/build.mjs",
-    "test": "node --test cloud/tests.test.cjs cloud/migrate.test.cjs cloud/editor.test.cjs hosted/*.test.mjs",
-    "db:generate": "drizzle-kit generate"
+    "test": "node --test cloud/*.test.cjs hosted/*.test.mjs",
+    "db:generate": "drizzle-kit generate",
+    "build:force": "node tools/build_force.mjs"
   },
   "devDependencies": {
+    "d3-force": "^3.0.1",
     "drizzle-kit": "^0.31.11",
-    "drizzle-orm": "^0.45.4"
+    "drizzle-orm": "^0.45.4",
+    "esbuild": "^0.28.2"
   }
 }

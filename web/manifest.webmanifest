@@ -4,7 +4,7 @@
   "description": "Your lifelong learning vault",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#07080a",
-  "theme_color": "#07080a",
+  "background_color": "#090a16",
+  "theme_color": "#090a16",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }
