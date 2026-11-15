@@ -7,9 +7,9 @@ export function textureResolution(pixelDemand){
 }
 export function starAppearance(kind,radius,zoom,selected=false){
   const magnification=Math.sqrt(Math.max(.01,zoom)),section=kind==='section';
-  return {corePx:Math.max(.55,Math.min(radius*magnification*.34,section?1.7:1.2)),
-    haloPx:Math.min(selected?26:section?23:15,4+radius*magnification*2.7),
-    haloOpacity:selected?.56:section?.42:.30};
+  return {corePx:Math.max(.8,Math.min(radius*magnification*.42,section?2.2:1.6)),
+    haloPx:Math.min(selected?30:section?26:18,6+radius*magnification*3),
+    haloOpacity:selected?.85:section?.7:.55};
 }
 export const rotatePoint = (point, angle = 0) => ({x:point.x*Math.cos(angle)-point.y*Math.sin(angle),y:point.x*Math.sin(angle)+point.y*Math.cos(angle)});
 export function screenPoint(point,camera,width,height){const p=rotatePoint(point,camera.angle||0);return {x:width/2+camera.x+p.x*camera.k,y:height/2+camera.y+p.y*camera.k};}

@@ -37,6 +37,6 @@ test('zooming keeps star cores and selected halos small in screen pixels',async(
  const {starAppearance}=await geometry();
  for(const kind of ['section','module','note','concept'])for(const zoom of [.04,.2,1,3,6])for(const selected of [false,true]){
   const light=starAppearance(kind,8,zoom,selected);
-  assert(light.corePx>=.55&&light.corePx<=1.7);assert(light.haloPx>light.corePx&&light.haloPx<=26);assert(light.haloOpacity<=.56);
+  assert(light.corePx>=.8&&light.corePx<=2.2);assert(light.haloPx>light.corePx&&light.haloPx<=30);assert(light.haloOpacity<=.85);
  }
 });

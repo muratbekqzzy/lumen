@@ -23,8 +23,6 @@ that a cloud AI service exists.
 | Flashcards/quizzes | Flip cards and supplied quiz JSON | Cards support keyboard access. There is no spaced-repetition schedule, persistent grading record or adaptive tutor. |
 | Sync | Account-isolated, local-first record sync with atomic hosted revisions | Existing two-client/SQLite tests continue to cover races, offline edits and conflict copies. Physical two-device sign-in was not exercised in this audit. |
 | Undo/backups | Up to 30 device-local undo entries, bounded in size; manual backup export | Undo now stores changed-record preimages and trims optional history when storage fills. It is not synced revision history, a guaranteed recovery mechanism or a scheduled off-site backup. |
-| SPSS | Ten standalone teaching lessons with local progress | All ten chapter functions render in a DOM stub. Main worked example recomputes to group means 11/9/7, SS between 40, SS within 36, F(2,12)=6.67 and p≈.011. Citations to the original lecture cannot be independently verified from the available repository. |
-| SPSS placement | Standalone URL and sidebar shortcut | Keep it in place for now. Later add a Statistics → SPSS module and preserve the existing URL as a stable entry point. Progress should become account-scoped and synced as part of that migration. |
 | Mac MCP | Separate local vault connector | Source exposes read/search/save tools, but it is not connected to the hosted D1 library. A hosted assistant cannot automatically read or save there through the local connector. The declared MCP 2.3 SDK source accepts its HTTP startup arguments; an older preinstalled SDK is not a valid compatibility test for that declaration. |
 
 ## Changes made in this audit
@@ -38,8 +36,6 @@ that a cloud AI service exists.
 - Extended search and concept discovery to actual lecture learning content.
 - Protected prepared materials, references and personal notes during caption edits.
 - Reduced undo storage amplification and prevented optional history from blocking saves.
-- Fixed SPSS navigation with invalid lesson parameters, corrupt progress and
-  unavailable browser storage. Progress remains explicitly device-local.
 - Improved local FFmpeg setup, no-speech errors, language selection, model-run
   serialization and empty-transcript realignment. Mac jobs remain in-memory and
   can be interrupted by closing/restarting the local server.

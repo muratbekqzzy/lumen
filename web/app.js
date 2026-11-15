@@ -50,7 +50,8 @@ function setMotion(value, persist = true) {
 motionMedia.addEventListener?.("change", () => { updateAtmosphereControls(); window.dispatchEvent(new Event("lumen-motion-changed")); });
 
 // luminous section colours: they glow as galaxies in the universe
-const COLORS = ["#a9c7ff", "#ffd27a", "#ff9fb2", "#8fe3bf", "#c7b3ff", "#7fd6ff", "#ffb38a", "#e6e9ee"];
+// Section colours from the Lumen sky: blush, orchid, lilac, periwinkle, pale blue, mint, peach, pearl.
+const COLORS = ["#fbd8e0", "#cf90c1", "#a898d8", "#8397c4", "#aacbe0", "#a8dcc8", "#f6c9a8", "#dde9ef"];
 const EMOJIS = ["", "📚", "🧠", "🩺", "💬", "🎬", "🎨", "🔬", "📐", "📊", "🌍", "✍️", "🎼", "💻", "🕌", "🥐", "🌿", "⚖️", "🧪", "🏛️", "📷", "🗺️", "🧩", "⭐"];
 const TYPES = [["academic", "Academic"], ["professional", "Professional"], ["creative", "Creative"], ["language", "Language"]];
 const ICONS = {
@@ -554,6 +555,7 @@ async function pageGraph(isCurrent = () => true) {
   $('#gmotion').onclick=()=>setMotion(motionIsCalm()?'full':'calm');updateAtmosphereControls();
   const [engine,data]=await Promise.all([loadGraph(),api('GET','/api/graph')]);if(!isCurrent()||!host?.isConnected)return;
   graphSignature=JSON.stringify(data);
+  document.body.dataset.stars=data.nodes.length?'1':'0';   // the sky recedes when your own stars are showing
   if(!data.nodes.length){const welcome=document.createElement('div');welcome.className='universe-welcome';if(signedOut()){welcome.innerHTML=`<p>Sign in to see your universe</p><a class="btn primary" href="${h(signInHref())}" target="_top">Sign in</a>`;host.parentElement.append(welcome);}else{welcome.innerHTML='<button class="btn primary" id="begin-universe">Import a lecture</button>';host.parentElement.append(welcome);$('#begin-universe').onclick=()=>openMarkdownImport();}}
   const open=node=>{if(!node)return;go(node.kind==='concept'?`#/concept/${encodeURIComponent(node.title)}`:hrefFor(node));};
   const focus=node=>{if(node.kind==='concept'){const button=$('[data-f="concepts"]');button?.classList.add('on');button?.setAttribute('aria-pressed','true');store.set('universeConcepts',true);}GRAPH?.focus(node.id);};

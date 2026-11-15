@@ -26,6 +26,11 @@ indicator distinguishes locally saved changes, syncing, synced, offline and erro
 
 ## Sky, Space and motion
 
+Behind everything is a living sky: slow ribbons of light drawn by a small WebGL shader at low
+resolution (about 30 frames a second), four-point sparkles and an occasional falling star. It softens
+when your own stars are showing, rests on reading pages, pauses in hidden tabs and holds still in
+Still mode or when the device asks for reduced motion. Without WebGL it falls back to soft gradients.
+
 The entrance is a centered, softly lit galaxy scene. Search and view controls sit
 above it; counts and the intro slogan are removed. Small sections begin near each
 other, with spacing increasing as their contents grow. View changes are temporary

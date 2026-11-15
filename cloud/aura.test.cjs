@@ -15,8 +15,8 @@ function fixture({theme='space',motion='full',reduced=false,hash='#/'}={}) {
  return {document,body,meta,classes,media,windowEvents,documentEvents,mediaEvents,atmosphere};
 }
 test('decorative atmosphere follows theme and stays outside the interactive app',()=>{
- const f=fixture();assert.equal(f.body.firstChild,f.atmosphere);assert.equal(f.atmosphere['aria-hidden'],'true');assert.equal(f.meta.content,'#15131f');
- f.document.documentElement.dataset.theme='sky';f.windowEvents['lumen-theme-changed']();assert.equal(f.meta.content,'#f4eef6');
+ const f=fixture();assert.equal(f.body.firstChild,f.atmosphere);assert.equal(f.atmosphere['aria-hidden'],'true');assert.equal(f.meta.content,'#121126');
+ f.document.documentElement.dataset.theme='sky';f.windowEvents['lumen-theme-changed']();assert.equal(f.meta.content,'#f3eef8');
  assert.equal(f.body.dataset.scene,'universe');
  f.document.documentElement.dataset.view='reading';f.windowEvents['lumen-scene-changed']();assert.equal(f.body.dataset.scene,'reading');
 });
@@ -26,4 +26,9 @@ test('ambient animation pauses for calm mode, reduced motion, and hidden tabs',(
  f.document.hidden=false;f.documentEvents.visibilitychange();assert(!f.classes.has('aura-still'));
  f.document.documentElement.dataset.motion='calm';f.windowEvents['lumen-motion-changed']();assert(f.classes.has('aura-still'));
  f.document.documentElement.dataset.motion='full';f.media.matches=true;f.mediaEvents.change();assert(f.classes.has('aura-still'));
+});
+test('the sky is built from seeded sparkles and star-fall and survives a device without WebGL',()=>{
+ const a=fixture(),b=fixture();assert.equal(a.atmosphere.innerHTML,b.atmosphere.innerHTML);
+ assert.match(a.atmosphere.innerHTML,/class="aura-flow"/);assert.equal((a.atmosphere.innerHTML.match(/--s:/g)||[]).length,34);
+ assert.equal((a.atmosphere.innerHTML.match(/--h:/g)||[]).length,8);assert(!a.classes.has('aura-gl'));
 });

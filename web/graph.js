@@ -14,8 +14,8 @@ function rgb(value) {
 }
 const rgba = (hex, a) => `rgba(${rgb(hex).join(",")},${clamp(a, 0, 1)})`;
 const palettes = {
-  space: { ink: "#f1edf7", muted: "#b5a9c1", star: "#d5cadf", concept: "#c7c0d8", bridge: "#e2d5dd", dust: "#d0c7dc", core: "#f6f2ed", halo: "#c4b6d5", edge: .045 },
-  sky: { ink: "#594661", muted: "#85718f", star: "#b9a5cb", concept: "#ad9ec0", bridge: "#b399b3", dust: "#ae9dbd", core: "#8b6f9a", halo: "#b6a1c9", edge: .065 },
+  space: { ink: "#f4f0fb", muted: "#b3abcf", star: "#dcd3f2", concept: "#b7c4ee", bridge: "#fbd8e0", dust: "#d8d1f0", core: "#fffaf2", halo: "#b9a8e6", edge: .10, lit: .42 },
+  sky: { ink: "#3f3460", muted: "#7c7099", star: "#9f86c9", concept: "#8397c4", bridge: "#cf90c1", dust: "#a394c8", core: "#6f549f", halo: "#b193d6", edge: .14, lit: .46 },
 };
 const galaxyCache=new Map();let galaxyCacheBytes=0;
 function randomFrom(seed){let value=2166136261;for(const char of String(seed))value=Math.imul(value^char.charCodeAt(0),16777619);return()=>{value+=0x6D2B79F5;let n=value;n=Math.imul(n^n>>>15,n|1);n^=n+Math.imul(n^n>>>7,n|61);return ((n^n>>>14)>>>0)/4294967296;};}
@@ -24,12 +24,12 @@ function galaxySprite(sky,index,pixelDemand=512){
  if(galaxyCache.has(key)){const canvas=galaxyCache.get(key);galaxyCache.delete(key);galaxyCache.set(key,canvas);return canvas;}
  const canvas=document.createElement('canvas');canvas.width=canvas.height=resolution;const g=canvas.getContext('2d'),random=randomFrom('galaxy-'+variant);
  g.setTransform(resolution/512,0,0,resolution/512,0,0);g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';
- const colors=sky?['#9c85b1','#bc9ba9','#9e91b5']:variant?['#c7bedb','#ddd1db','#c5bfd2']:['#d9c7d3','#c4bad6','#d4c9d6'];
+ const colors=sky?(variant?['#8397c4','#cf90c1','#8d80b0']:['#cf90c1','#8d80b0','#8397c4']):variant?['#aacbe0','#cf90c1','#8d80b0']:['#fbd8e0','#8397c4','#cf90c1'];
  // A low-contrast light field, with the same filament positions at every resolution.
  for(let j=0;j<3;j++){
   g.save();g.translate(256+(j-1)*28,256+(j-1)*14);g.scale(1,.6+j*.035);
   const radius=216-j*36,gradient=g.createRadialGradient(0,0,0,0,0,radius);
-  gradient.addColorStop(0,rgba(colors[j],sky?.06:.055));gradient.addColorStop(.48,rgba(colors[j],.024));gradient.addColorStop(1,rgba(colors[j],0));
+  gradient.addColorStop(0,rgba(colors[j],sky?.085:.075));gradient.addColorStop(.48,rgba(colors[j],.032));gradient.addColorStop(1,rgba(colors[j],0));
   g.fillStyle=gradient;g.fillRect(-radius,-radius,radius*2,radius*2);g.restore();
  }
  for(let i=0;i<1400;i++){
@@ -48,6 +48,15 @@ function glow(color){
  const canvas=document.createElement('canvas');canvas.width=canvas.height=128;const g=canvas.getContext('2d'),gradient=g.createRadialGradient(64,64,0,64,64,64);
  gradient.addColorStop(0,rgba(color,.38));gradient.addColorStop(.075,rgba(color,.25));gradient.addColorStop(.2,rgba(color,.10));gradient.addColorStop(.45,rgba(color,.024));gradient.addColorStop(1,rgba(color,0));
  g.fillStyle=gradient;g.fillRect(0,0,128,128);if(glowCache.size>=48)glowCache.delete(glowCache.keys().next().value);glowCache.set(color,canvas);return canvas;
+}
+
+const sparkleCache=new Map();
+function sparkle(color,heart='#ffffff'){
+ const key=color+heart;if(sparkleCache.has(key))return sparkleCache.get(key);
+ const canvas=document.createElement('canvas');canvas.width=canvas.height=128;const g=canvas.getContext('2d'),c=64;
+ const ray=(reach,waist,alpha)=>{g.globalAlpha=alpha;g.beginPath();g.moveTo(c,c-reach);g.quadraticCurveTo(c+waist,c-waist,c+reach,c);g.quadraticCurveTo(c+waist,c+waist,c,c+reach);g.quadraticCurveTo(c-waist,c+waist,c-reach,c);g.quadraticCurveTo(c-waist,c-waist,c,c-reach);g.fill();};
+ g.fillStyle=color;ray(62,7,.22);ray(54,3.2,.5);g.fillStyle=heart;ray(40,1.4,.9);
+ g.globalAlpha=1;if(sparkleCache.size>=48)sparkleCache.delete(sparkleCache.keys().next().value);sparkleCache.set(key,canvas);return canvas;
 }
 
 export function mountGraph(host, data, opts = {}) {
@@ -82,7 +91,7 @@ export function mountGraph(host, data, opts = {}) {
   function colorOf(n) {
     if (n.kind === "concept") return n.bridges > 1 ? palette.bridge : palette.concept;
     const original=n.color||galaxies.get(n.galaxy)?.color||palette.star,base=rgb(galaxies.get(n.galaxy)?.index%2?'#c9c1d7':palette.star);
-    return '#'+rgb(original).map((value,i)=>Math.round(base[i]*.78+value*.22).toString(16).padStart(2,'0')).join('');
+    return '#'+rgb(original).map((value,i)=>Math.round(base[i]*.5+value*.5).toString(16).padStart(2,'0')).join('');
   }
   const localCounts=new Map();nodes.forEach(n=>{const g=galaxies.get(n.galaxy),i=localCounts.get(g.id)||0;localCounts.set(g.id,i+1);const a=i*2.399,d=n.kind==='section'?0:12+Math.sqrt(i)*10;n.x=g.ax+Math.cos(a)*d;n.y=g.ay+Math.sin(a)*d*.7;});
   const sim = forceSimulation(nodes)
@@ -212,8 +221,9 @@ export function mountGraph(host, data, opts = {}) {
   ro.observe(host);
   function text(str, x, y, { font = SANS, size = 11, weight = 400, color = rgba(palette.ink, .9), align = "left", base = "middle", spacing = 0 } = {}) {
     ctx.font = `${weight} ${size}px ${font}`; ctx.textAlign = align; ctx.textBaseline = base; ctx.fillStyle = color;
+    ctx.shadowColor = sky ? "rgba(255,252,255,.95)" : "rgba(10,8,30,.95)"; ctx.shadowBlur = 9;   // names stay legible over moving light
     if ("letterSpacing" in ctx) ctx.letterSpacing = `${spacing}px`;
-    ctx.fillText(str, x, y); if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+    ctx.fillText(str, x, y); ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
   }
   function atmosphere(t) {
     if (!stars.length) return;
@@ -235,8 +245,8 @@ export function mountGraph(host, data, opts = {}) {
   function frame(time) {
     raf = null; if (destroyed || document.hidden) return;
     if (W < 1 || H < 1) return;
-    const interacting=pointers.size>0||Math.abs(target.k-view.k)+Math.abs(target.angle-view.angle)>.01;
-    const frameInterval=nodes.length>600&&!interacting?1000/30:1000/60;
+    const interacting=pointers.size>0||!settled||Math.abs(target.k-view.k)+Math.abs(target.angle-view.angle)>.01||Math.abs(target.x-view.x)+Math.abs(target.y-view.y)>.5;
+    const frameInterval=interacting?1000/60:1000/30;
     if (!needsDraw && !reduceMotion && time - last < frameInterval - 1) { raf = requestAnimationFrame(frame); return; }
     const t = time - t0; last = time; needsDraw = false;
     if (!settled && sim.alpha() < .06) { settled = true; if (!userMoved&&!inputActive) fit(); }
@@ -271,13 +281,15 @@ export function mountGraph(host, data, opts = {}) {
       const sx = s.x + s.dx, sy = s.y + s.dy, tx = d.x + d.dx, ty = d.y + d.dy;
       ctx.beginPath(); ctx.moveTo(sx, sy);
       ctx.quadraticCurveTo((sx+tx)/2+(ty-sy)*.13,(sy+ty)/2-(tx-sx)*.13,tx,ty);
-      ctx.strokeStyle = rgba(colorOf(s.kind === "concept" ? d : s), (highlighted ? .20 : palette.edge) * l.vis); ctx.lineWidth = (highlighted ? .7 : .45) / view.k; ctx.stroke();
+      ctx.strokeStyle = rgba(colorOf(s.kind === "concept" ? d : s), (highlighted ? palette.lit : palette.edge) * l.vis); ctx.lineWidth = (highlighted ? .9 : .55) / view.k; ctx.stroke();
     }
     for (const n of nodes) {
       if (n.vis < .02) continue;
       const c=colorOf(n),x=n.x+n.dx,y=n.y+n.dy,birth=reduceMotion?1:ease((t-n.born)/900),light=starAppearance(n.kind,n.r,view.k,n===active);
       const radius=light.corePx*birth/view.k,halo=light.haloPx*birth/view.k;if(radius<=0)continue;
-      ctx.globalAlpha=n.vis*light.haloOpacity*n.luminance;ctx.drawImage(glow(c),x-halo,y-halo,halo*2,halo*2);
+      const twinkle=reduceMotion?1:.86+.14*Math.sin(t*.0011+n.phase*3.1);
+      ctx.globalAlpha=n.vis*light.haloOpacity*n.luminance*twinkle;ctx.drawImage(glow(c),x-halo,y-halo,halo*2,halo*2);
+      if(n.kind==='section'||n===active){const rays=halo*(n===active?1.25:.95)*(.92+.08*twinkle);ctx.globalAlpha=n.vis*(n===active?.95:.7)*twinkle;ctx.drawImage(sparkle(c,sky?palette.core:'#ffffff'),x-rays,y-rays,rays*2,rays*2);}
       ctx.globalAlpha=n.vis*n.luminance;ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.fillStyle=palette.core;ctx.fill();
     }
     ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;ctx.setTransform(dpr,0,0,dpr,0,0);

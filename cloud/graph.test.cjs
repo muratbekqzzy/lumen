@@ -61,9 +61,9 @@ test('empty libraries show decorative particles without inventing graph records'
 test('theme changes redraw dark labels for sky and bright labels for space',()=>{
  const f=fixture({motion:'calm'});f.advance(3);f.graph.focus('n1');f.advance();f.calls.length=0;
  f.document.documentElement.dataset.theme='sky';f.window.dispatch('lumen-theme-changed');f.advance();
- assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(89,70,97,0.9)'));
+ assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(63,52,96,0.9)'));
  f.calls.length=0;f.document.documentElement.dataset.theme='space';f.window.dispatch('lumen-theme-changed');f.advance();
- assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(241,237,247,0.9)'));f.graph.destroy();
+ assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(244,240,251,0.9)'));f.graph.destroy();
 });
 test('retina canvas stays sharp through resizing without exceeding its drawing budget',()=>{
  const f=fixture({width:390,height:844,pixelRatio:3,motion:'calm'});f.advance(3);
