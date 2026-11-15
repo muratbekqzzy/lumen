@@ -65,7 +65,7 @@ success. Sync is not a substitute for independent backups.
 - `cloud/cloud.js`: browser adapter, local persistence, automatic synchronization.
 - `cloud/migrate.js`: validated one-time migration from the original origin.
 - `hosted/sync.mjs`: authenticated sync API and atomic D1 snapshots.
-- `hosted/migrations/`: database schema migrations applied during deployment.
+- `db/schema.ts`, `drizzle/`: schema and generated migrations applied during deployment.
 - `hosted/build.mjs`: bundles the existing UI and API into a hosted Worker.
 - `.openai/hosting.json`: existing Site identity and storage binding.
 

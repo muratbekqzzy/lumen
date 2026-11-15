@@ -1,0 +1,117 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "edfba5f9-c516-43ae-82fa-59dc7ac89cfa",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "lumen_chunks": {
+      "name": "lumen_chunks",
+      "columns": {
+        "owner": {
+          "name": "owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "part": {
+          "name": "part",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "lumen_chunks_owner_lumen_heads_owner_fk": {
+          "name": "lumen_chunks_owner_lumen_heads_owner_fk",
+          "tableFrom": "lumen_chunks",
+          "tableTo": "lumen_heads",
+          "columnsFrom": [
+            "owner"
+          ],
+          "columnsTo": [
+            "owner"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "lumen_chunks_owner_revision_part_pk": {
+          "columns": [
+            "owner",
+            "revision",
+            "part"
+          ],
+          "name": "lumen_chunks_owner_revision_part_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "lumen_heads": {
+      "name": "lumen_heads",
+      "columns": {
+        "owner": {
+          "name": "owner",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "lumen_heads_revision_nonnegative": {
+          "name": "lumen_heads_revision_nonnegative",
+          "value": "\"lumen_heads\".\"revision\" >= 0"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

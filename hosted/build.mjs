@@ -36,5 +36,5 @@ await mkdir(path.join(dist, 'server'), {recursive:true});
 await mkdir(path.join(dist, '.openai'), {recursive:true});
 await writeFile(path.join(dist, 'server/index.js'), worker);
 await cp(path.join(root, '.openai/hosting.json'), path.join(dist, '.openai/hosting.json'));
-await cp(path.join(root, 'hosted/migrations'), path.join(dist, 'hosted/migrations'), {recursive:true});
+await cp(path.join(root, 'drizzle'), path.join(dist, 'drizzle'), {recursive:true});
 console.log(`Built hosted Lumen (${Buffer.byteLength(worker)} bytes)`);
