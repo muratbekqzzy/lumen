@@ -1,13 +1,13 @@
 /* Two atmospheres: the depth of Space and the softness of Sky. */
 :root {
-  --bg: #21132f; --panel: #2b1c3b; --side: rgba(30, 19, 43, .94);
-  --ink: #fff1fb; --ink-2: #e8d4ee; --muted: #c0a3ca;
-  --line: rgba(202, 185, 255, .10); --line-2: rgba(202, 185, 255, .21);
-  --hover: rgba(246, 190, 230, .085); --accent: #f2c5ec;
-  --accent-soft: rgba(235, 162, 224, .14); --mark: rgba(237, 196, 164, .22);
-  --ok: #9ddcc6; --warn: #ecc3a4; --danger: #f4a5b6;
-  --shadow: 0 2px 8px rgba(3, 3, 13, .12), 0 16px 44px rgba(3, 3, 13, .22);
-  --glass: rgba(45, 28, 62, .68); --radius: 16px;
+  --bg: #15131f; --panel: #1d1a2b; --side: rgba(20, 18, 31, .96);
+  --ink: #f1edf7; --ink-2: #d0c8dc; --muted: #aa9db8;
+  --line: rgba(205, 192, 224, .11); --line-2: rgba(205, 192, 224, .21);
+  --hover: rgba(204, 186, 220, .06); --accent: #cbb9df;
+  --accent-soft: rgba(189, 164, 208, .11); --mark: rgba(198, 174, 201, .19);
+  --ok: #a4c7bb; --warn: #d3bcae; --danger: #dca7ba;
+  --shadow: 0 2px 8px rgba(9, 7, 18, .09), 0 16px 44px rgba(9, 7, 18, .15);
+  --glass: rgba(29, 26, 43, .86); --floating: #1c192a; --radius: 14px;
   --serif: "Inter Tight", "Inter", -apple-system, sans-serif;
   --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -15,14 +15,14 @@
   color-scheme: dark;
 }
 :root[data-theme="sky"], :root[data-theme="light"] {
-  --bg: #faeafa; --panel: #fff6fc; --side: rgba(251, 238, 250, .94);
-  --ink: #45294f; --ink-2: #66436d; --muted: #815b88;
-  --line: rgba(92, 64, 126, .11); --line-2: rgba(92, 64, 126, .22);
-  --hover: rgba(180, 104, 165, .065); --accent: #955586;
-  --accent-soft: rgba(135, 94, 188, .10); --mark: rgba(225, 165, 119, .26);
-  --ok: #25765f; --warn: #9b622b; --danger: #ae3c61;
-  --glass: rgba(255, 246, 253, .74);
-  --shadow: 0 2px 7px rgba(72, 45, 103, .035), 0 16px 44px rgba(72, 45, 103, .07);
+  --bg: #f4eef6; --panel: #fcf8fd; --side: rgba(244, 238, 247, .96);
+  --ink: #403147; --ink-2: #625169; --muted: #806b8a;
+  --line: rgba(108, 84, 124, .12); --line-2: rgba(108, 84, 124, .22);
+  --hover: rgba(152, 119, 167, .055); --accent: #876695;
+  --accent-soft: rgba(156, 125, 177, .10); --mark: rgba(188, 147, 171, .18);
+  --ok: #47796a; --warn: #967862; --danger: #a66b82;
+  --glass: rgba(252, 248, 253, .88); --floating: #f8f2fa;
+  --shadow: 0 2px 7px rgba(73, 49, 90, .025), 0 16px 44px rgba(73, 49, 90, .05);
   color-scheme: light;
 }
 
@@ -467,17 +467,15 @@ body[data-scene="reading"] .lumen-atmosphere { opacity: .24; }
 .aura-layer i { display: block; position: absolute; pointer-events: none; }
 .aura-cloud { inset: -10%; transform: translate3d(0,0,0); animation: cloudDrift 42s ease-in-out infinite alternate; }
 .aura-space .aura-cloud {
-  background: radial-gradient(ellipse 56% 55% at 28% 62%, rgba(227, 126, 198, .42), rgba(227, 126, 198, 0) 82%),
-    radial-gradient(ellipse 57% 56% at 74% 34%, rgba(171, 139, 244, .42), rgba(171, 139, 244, 0) 85%),
-    radial-gradient(ellipse 40% 38% at 55% 75%, rgba(252, 190, 220, .18), rgba(252, 190, 220, 0) 90%),
-    radial-gradient(ellipse 50% 35% at 42% 32%, rgba(161, 182, 241, .18), rgba(161, 182, 241, 0) 85%);
+  background: radial-gradient(ellipse 60% 56% at 28% 62%, rgba(175, 128, 159, .22), rgba(175, 128, 159, 0) 84%),
+    radial-gradient(ellipse 60% 58% at 75% 34%, rgba(145, 132, 181, .24), rgba(145, 132, 181, 0) 86%),
+    radial-gradient(ellipse 43% 40% at 52% 73%, rgba(208, 184, 199, .08), rgba(208, 184, 199, 0) 88%);
 }
 .aura-sky { opacity: 0; }
 .aura-sky .aura-cloud {
-  background: radial-gradient(ellipse 57% 58% at 24% 66%, rgba(255, 181, 218, .7), rgba(255, 181, 218, 0) 85%),
-    radial-gradient(ellipse 60% 57% at 76% 32%, rgba(195, 170, 250, .68), rgba(195, 170, 250, 0) 85%),
-    radial-gradient(ellipse 48% 40% at 55% 76%, rgba(255, 238, 240, .94), rgba(255, 238, 240, 0) 86%),
-    radial-gradient(ellipse 48% 40% at 38% 27%, rgba(202, 216, 255, .48), rgba(202, 216, 255, 0) 88%);
+  background: radial-gradient(ellipse 60% 58% at 25% 64%, rgba(228, 193, 211, .52), rgba(228, 193, 211, 0) 86%),
+    radial-gradient(ellipse 60% 59% at 75% 34%, rgba(205, 192, 229, .54), rgba(205, 192, 229, 0) 86%),
+    radial-gradient(ellipse 48% 43% at 52% 75%, rgba(254, 249, 250, .85), rgba(254, 249, 250, 0) 88%);
 }
 :root[data-theme="sky"] .aura-sky, :root[data-theme="light"] .aura-sky { opacity: 1; }
 :root[data-theme="sky"] .aura-space, :root[data-theme="light"] .aura-space { opacity: 0; }
@@ -487,7 +485,7 @@ body[data-scene="reading"] .lumen-atmosphere { opacity: .24; }
 }
 .aura-sky .aura-stars { opacity: .46; filter: drop-shadow(0 0 3px #fff); }
 body[data-scene="reading"] .aura-stars { opacity: 0; }
-.aura-grain { position: absolute; inset: 0; opacity: .028;
+.aura-grain { position: absolute; inset: 0; opacity: .008;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.76' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath fill='%23fff' filter='url(%23n)' opacity='.6' d='M0 0h180v180H0z'/%3E%3C/svg%3E");
 }
 @keyframes cloudDrift { from { transform: translate3d(-2%, 1%, 0) scale(1); } to { transform: translate3d(3%, -2%, 0) scale(1.06); } }
@@ -716,4 +714,36 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
  .universe-zoom { right: 16px; bottom: max(100px,calc(env(safe-area-inset-bottom) + 84px)); }
  .menu-btn { top: max(19px,env(safe-area-inset-top)); left: 14px; width: 44px; height: 44px; background: var(--glass); backdrop-filter: blur(18px); }
  .searchbox input, .dialog input[type=text], .dialog input[type=url], .dialog textarea, .dialog select, .editor textarea { font-size: 16px; }
+}
+
+/* One reading measure, independent of each component's font metrics. */
+.lecture-page { --reading-width: 760px; }
+.lecture-prose, .lesson-outline, .lesson-practice, .notes-workspace { width: 100%; max-width: var(--reading-width,760px); margin-inline: auto; }
+.lesson-outline { margin-bottom: 26px; padding: 0 0 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.lesson-outline > summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; list-style: none; min-height: 32px; padding: 0; color: var(--muted); font: 400 12px/1.6 var(--sans); }
+.lesson-outline > summary::-webkit-details-marker { display: none; }
+.lesson-outline > summary::marker { content: ""; }
+.outline-chevron { flex: none; opacity: .7; transition: transform .18s var(--ease); }
+.lesson-outline[open] .outline-chevron { transform: rotate(90deg); }
+.lesson-outline nav { margin-top: 14px; gap: 2px; }
+.lesson-outline button { padding: 6px 0; }
+.editor.single-editor { display: block; }
+.single-editor [hidden] { display: none !important; }
+.single-editor textarea, .single-editor .preview { width: 100%; max-width: none; min-height: 50vh; padding: 22px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel); color: var(--ink-2); box-shadow: none; }
+.single-editor textarea { font: 400 16px/1.8 var(--sans); resize: vertical; }
+.single-editor .preview { font-size: 16px; }
+.editor-toolbar { align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.editor-shortcut { margin-left: auto; color: var(--muted); font: 400 10px var(--mono); opacity: .7; }
+.empty-note-preview { color: var(--muted); }
+.immersive-universe .u-dock { left: 24px; right: 24px; width: auto; max-width: none; transform: none; display: flex; justify-content: center; pointer-events: none; }
+.u-continue { pointer-events: auto; max-width: min(660px,100%); background: var(--floating); background-image: none; backdrop-filter: none; -webkit-backdrop-filter: none; filter: none; mix-blend-mode: normal; isolation: isolate; box-shadow: 0 5px 22px rgba(14,10,24,.05); border-color: var(--line); border-radius: 16px; }
+.u-continue::before, .u-continue::after { content: none; }
+.u-continue span { font: 400 9px var(--mono); letter-spacing: .035em; }
+.u-continue b { font: 400 13px/1.4 var(--serif); }
+@media(max-width:900px) {
+ .immersive-universe .u-dock { left: 16px; right: 16px; width: auto; max-width: none; transform: none; }
+ .u-continue { max-width: 100%; border-radius: 14px; }
+ .u-continue b { max-width: 43vw; }
+ .single-editor textarea, .single-editor .preview { padding: 18px; }
+ .editor-toolbar .btn { min-height: 40px; }
 }

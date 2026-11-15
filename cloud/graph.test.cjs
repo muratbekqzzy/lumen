@@ -10,7 +10,7 @@ function target() {
  return {events, addEventListener(n, fn) { if (!events.has(n)) events.set(n, new Set()); events.get(n).add(fn); }, removeEventListener(n, fn) { events.get(n)?.delete(fn); },
  dispatch(n, props = {}) { for (const fn of [...events.get(n) || []]) fn({type:n, preventDefault(){}, ...props}); }};
 }
-function fixture({empty = false, theme = 'space', motion = 'full', width = 800, height = 650, data:customData} = {}) {
+function fixture({empty = false, theme = 'space', motion = 'full', width = 800, height = 650, pixelRatio = 2, data:customData} = {}) {
  const calls = [], frames = new Map(), observers = [], simulations = [], canvases = [];
  let timestamp = 0, serial = 0;
  const drawing = new Proxy({createRadialGradient:() => ({addColorStop(){}})}, {
@@ -31,7 +31,7 @@ function fixture({empty = false, theme = 'space', motion = 'full', width = 800, 
   simulations.push(sim);return sim;
  }
  const context={document,window,matchMedia:()=>media,ResizeObserver:class{constructor(fn){this.fn=fn;this.disconnected=false;observers.push(this);}observe(){this.fn();}disconnect(){this.disconnected=true;}},
-  requestAnimationFrame(fn){frames.set(++serial,fn);return serial;},cancelAnimationFrame(id){frames.delete(id);},performance:{now:()=>timestamp},devicePixelRatio:2,forceSimulation,forceLink,
+  requestAnimationFrame(fn){frames.set(++serial,fn);return serial;},cancelAnimationFrame(id){frames.delete(id);},performance:{now:()=>timestamp},devicePixelRatio:pixelRatio,forceSimulation,forceLink,
   forceManyBody:chain,forceCollide:chain,forceX:chain,forceY:chain,console};
  vm.createContext(context);vm.runInContext(source,context);
  const data=customData||(empty?{nodes:[],edges:[]}:{nodes:[{id:'s1',title:'Dreams',kind:'section',section:'s1',color:'#c4b5fd'},{id:'n1',title:'Memory',kind:'note',section:'s1',parent:'s1',degree:1}],edges:[{source:'s1',target:'n1',type:'contains'}]});
@@ -61,9 +61,16 @@ test('empty libraries show decorative particles without inventing graph records'
 test('theme changes redraw dark labels for sky and bright labels for space',()=>{
  const f=fixture({motion:'calm'});f.advance(3);f.graph.focus('n1');f.advance();f.calls.length=0;
  f.document.documentElement.dataset.theme='sky';f.window.dispatch('lumen-theme-changed');f.advance();
- assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(87,49,97,0.9)'));
+ assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(89,70,97,0.9)'));
  f.calls.length=0;f.document.documentElement.dataset.theme='space';f.window.dispatch('lumen-theme-changed');f.advance();
- assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(255,241,252,0.9)'));f.graph.destroy();
+ assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(241,237,247,0.9)'));f.graph.destroy();
+});
+test('retina canvas stays sharp through resizing without exceeding its drawing budget',()=>{
+ const f=fixture({width:390,height:844,pixelRatio:3,motion:'calm'});f.advance(3);
+ assert.equal(f.canvas.width,1170);assert.equal(f.canvas.height,2532);
+ assert(f.calls.some(x=>x.property==='imageSmoothingQuality'&&x.value==='high'));
+ f.host.width=3840;f.host.height=2160;f.observers[0].fn();f.advance(2);
+ assert(f.canvas.width*f.canvas.height<=14010000);assert(f.canvas.width>=3840);f.graph.destroy();
 });
 test('pointer cancellation never opens or selects a star',()=>{
  const f=fixture({motion:'calm'});f.advance(3);

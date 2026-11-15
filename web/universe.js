@@ -1,4 +1,16 @@
-// Geometry only. Camera gestures and galaxy spacing never change library records.
+// Pure scene calculations. Camera and rendering never change library records.
+export function canvasPixelRatio(width,height,deviceRatio=1){
+  return Math.max(.5,Math.min(Number(deviceRatio)||1,3,Math.sqrt(14000000/Math.max(1,width*height))));
+}
+export function textureResolution(pixelDemand){
+  return pixelDemand<=512?512:pixelDemand<=1024?1024:2048;
+}
+export function starAppearance(kind,radius,zoom,selected=false){
+  const magnification=Math.sqrt(Math.max(.01,zoom)),section=kind==='section';
+  return {corePx:Math.max(.55,Math.min(radius*magnification*.34,section?1.7:1.2)),
+    haloPx:Math.min(selected?26:section?23:15,4+radius*magnification*2.7),
+    haloOpacity:selected?.56:section?.42:.30};
+}
 export const rotatePoint = (point, angle = 0) => ({x:point.x*Math.cos(angle)-point.y*Math.sin(angle),y:point.x*Math.sin(angle)+point.y*Math.cos(angle)});
 export function screenPoint(point,camera,width,height){const p=rotatePoint(point,camera.angle||0);return {x:width/2+camera.x+p.x*camera.k,y:height/2+camera.y+p.y*camera.k};}
 export function worldPoint(point,camera,width,height){return rotatePoint({x:(point.x-width/2-camera.x)/camera.k,y:(point.y-height/2-camera.y)/camera.k},-(camera.angle||0));}

@@ -713,7 +713,7 @@ function lessonOutline(body) {
   if(headings.length<3)return;
   headings.forEach((node,i)=>node.id='lesson-heading-'+i);
   const outline=document.createElement('details');outline.className='lesson-outline';
-  outline.innerHTML='<summary>On this page</summary><nav aria-label="Lecture contents">'+headings.map((node,i)=>`<button type="button" data-heading="${i}" class="${Number(node.tagName[1])>level?'outline-sub':''}">${h(node.textContent)}</button>`).join('')+'</nav>';
+  outline.innerHTML='<summary><span>On this page</span><svg class="outline-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="m5 3 5 5-5 5"/></svg></summary><nav aria-label="Lecture contents">'+headings.map((node,i)=>`<button type="button" data-heading="${i}" class="${Number(node.tagName[1])>level?'outline-sub':''}">${h(node.textContent)}</button>`).join('')+'</nav>';
   article.before(outline);
   $$('[data-heading]',outline).forEach(button=>button.onclick=()=>headings[Number(button.dataset.heading)].scrollIntoView({behavior:motionIsCalm()?'auto':'smooth',block:'start'}));
 }
@@ -776,23 +776,31 @@ function wireAudio() {
 
 // ---- notes
 function renderEditor(body, text, save, hint, practice = false) {
-  body.innerHTML = `<div class="toolbar"><button class="btn primary" id="save">Save</button>${practice ? '<button class="btn ghost" id="add-practice-question">Add a question</button>' : ''}<span style="color:var(--muted);font-size:13px;align-self:center">${h(hint || "Markdown supported. ⌘S to save.")}</span></div>
+  body.innerHTML = `<div class="notes-workspace"><div class="toolbar editor-toolbar"><button class="btn primary" id="save">Save</button><button class="btn ghost" id="preview-notes" type="button" aria-pressed="false" aria-controls="pv">Preview</button>${practice ? '<button class="btn ghost" id="add-practice-question">Add a question</button>' : ''}<span class="editor-shortcut" title="${h(hint || 'Markdown supported.')}" aria-label="Command or Control S to save">⌘S</span></div>
     <p id="editor-sync-notice" role="status" hidden style="color:var(--muted);font-size:13px">Changes arrived from another device. Your draft is kept here; saving will preserve both versions if needed.</p>
-    <div class="editor"><textarea id="ed" spellcheck="true">${h(text)}</textarea><div class="preview prose" id="pv"></div></div>`;
-  const ed = $("#ed"), pv = $("#pv"), button = $("#save");
+    <div class="editor single-editor"><textarea id="ed" spellcheck="true" aria-label="Your notes">${h(text)}</textarea><div class="preview prose" id="pv" hidden aria-label="Notes preview"></div></div></div>`;
+  const ed = $("#ed"), pv = $("#pv"), button = $("#save"), viewButton = $("#preview-notes");
+  ed.hidden=false;pv.hidden=true;
   const editor = { element: ed, savedText: text || "", routeHash: location.hash, saving: false,
     accountId: window.LumenCloud?.activeAccountId || null };
   activeEditor = editor;
-  let t, previewVersion = 0;
+  let previewVersion = 0, showingPreview = false;
   const preview = async () => {
+    if(!showingPreview)return;
     const version = ++previewVersion, draft = ed.value;
+    pv.innerHTML = '<p class="empty-note-preview" role="status">Preparing preview…</p>';
     try {
       const html = await api("POST", "/api/render", { body: draft });
-      if (version !== previewVersion || !ed.isConnected || ed.value !== draft) return;
-      pv.innerHTML = html; enhance(pv);
-    } catch (error) { if (ed.isConnected) console.error("Could not preview note", error); }
+      if (version !== previewVersion || !showingPreview || !ed.isConnected || ed.value !== draft) return;
+      pv.innerHTML = html || '<p class="empty-note-preview">Your notes will appear here.</p>'; enhance(pv);
+    } catch (error) {
+      if(version===previewVersion&&showingPreview&&ed.isConnected)pv.innerHTML='<p class="empty-note-preview" role="status">Preview could not be loaded. Choose Edit to return to your notes.</p>';
+      if (ed.isConnected) console.error("Could not preview note", error);
+    }
   };
-  ed.addEventListener("input", () => { clearTimeout(t); t = setTimeout(preview, 350); button.textContent = ed.value === editor.savedText ? "Saved" : "Save •"; });
+  const showPreview = on => {showingPreview=on;ed.hidden=on;pv.hidden=!on;if(viewButton){viewButton.textContent=on?'Edit':'Preview';viewButton.setAttribute('aria-pressed',String(on));}if(on)preview();else{previewVersion++;ed.focus?.();}};
+  if(viewButton)viewButton.onclick=()=>showPreview(!showingPreview);
+  ed.addEventListener("input", () => { button.textContent = ed.value === editor.savedText ? "Saved" : "Save •"; });
   const doSave = async () => {
     if (editor.saving) return;
     if (editor.accountId !== (window.LumenCloud?.activeAccountId || null)) {
@@ -817,9 +825,9 @@ function renderEditor(body, text, save, hint, practice = false) {
   ed.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); doSave(); } });
   if ($('#add-practice-question')) $('#add-practice-question').onclick = () => dialog(`<h3>Add a practice question</h3><label>Question</label><textarea name="question" rows="3" required></textarea><label>Answer</label><textarea name="answer" rows="4" required></textarea><div class="actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button class="btn primary" type="submit">Insert question</button></div>`, form => {
     const block='\n\n```qa\n'+JSON.stringify({q:form.question.value.trim(),a:form.answer.value.trim()})+'\n```\n';
+    showPreview(false);
     ed.setRangeText(block,ed.selectionStart,ed.selectionEnd,'end');ed.dispatchEvent(new Event('input'));ed.focus();
   });
-  preview();
 }
 async function pageNote(id, edit, isCurrent = () => true) {
   const n = await api("GET", `/api/notes/${id}`);

@@ -27,3 +27,16 @@ test('layout and camera fitting are read-only, including empty or temporarily hi
  const {galaxyLayout,overviewCamera}=await geometry(),data=nodes(5);const before=JSON.stringify(data);galaxyLayout(data);assert.equal(JSON.stringify(data),before);
  for(const [width,height] of [[0,0],[320,250]])assert(Object.values(overviewCamera([],width,height)).every(Number.isFinite));
 });
+test('texture resolution follows pixel demand and the canvas respects a bounded retina budget',async()=>{
+ const {canvasPixelRatio,textureResolution}=await geometry();
+ assert.equal(canvasPixelRatio(390,844,3),3);assert.equal(canvasPixelRatio(1440,900,2),2);
+ const ratio=canvasPixelRatio(3840,2160,3);assert(ratio>=1&&ratio<2);assert(3840*2160*ratio*ratio<=14000001);
+ assert.equal(textureResolution(320),512);assert.equal(textureResolution(900),1024);assert.equal(textureResolution(1700),2048);assert.equal(textureResolution(10000),2048);
+});
+test('zooming keeps star cores and selected halos small in screen pixels',async()=>{
+ const {starAppearance}=await geometry();
+ for(const kind of ['section','module','note','concept'])for(const zoom of [.04,.2,1,3,6])for(const selected of [false,true]){
+  const light=starAppearance(kind,8,zoom,selected);
+  assert(light.corePx>=.55&&light.corePx<=1.7);assert(light.haloPx>light.corePx&&light.haloPx<=26);assert(light.haloOpacity<=.56);
+ }
+});

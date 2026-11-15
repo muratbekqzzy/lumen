@@ -45,3 +45,35 @@ require('node:test')('unsaved drafts survive sync, save races and account change
   assert.equal(vm.runInContext('allowEditorReplacement("#/library")', context), true);
   assert.equal(vm.runInContext('hasUnsavedDraft()', context), false);
 });
+
+function singlePaneEditor() {
+  const hooks={},requests=[],saved=[],ed={value:'Start',isConnected:true,addEventListener(name,fn){hooks[name]=fn;},focus(){this.focused=true;}},pv={},toggle={setAttribute(name,value){this[name]=value;}},saveButton={};
+  const elements={'#ed':ed,'#pv':pv,'#save':saveButton,'#preview-notes':toggle};
+  const ctx={$:key=>elements[key]||null,h:v=>v,location:{hash:'#/lecture/test?tab=notes'},window:{LumenCloud:{activeAccountId:'user-a'}},toast(){},console:{error(){}},enhance(){},
+    api(method,path,payload){return new Promise((resolve,reject)=>requests.push({method,path,payload,resolve,reject}));},
+    save:async(text,expected)=>{saved.push({text,expected});return {};}};
+  vm.createContext(ctx);vm.runInContext(state+editorFn,ctx);vm.runInContext('renderEditor({innerHTML:""},"Start",save)',ctx);
+  return {ctx,ed,pv,toggle,saveButton,hooks,requests,saved};
+}
+require('node:test')('Notes uses one pane and preview never replaces or saves a draft',async()=>{
+  const f=singlePaneEditor();
+  assert.equal(f.ed.hidden,false);assert.equal(f.pv.hidden,true);assert.equal(f.requests.length,0);
+  f.ed.value='My **draft**';f.hooks.input();
+  assert.equal(f.requests.length,0,'Typing does not render an invisible duplicate');
+  f.toggle.onclick();assert.equal(f.ed.hidden,true);assert.equal(f.pv.hidden,false);assert.equal(f.toggle['aria-pressed'],'true');
+  assert.equal(f.requests[0].payload.body,'My **draft**');assert.equal(f.saved.length,0);
+  f.requests[0].resolve('<p>My <strong>draft</strong></p>');await new Promise(setImmediate);
+  assert.match(f.pv.innerHTML,/<strong>draft<\/strong>/);
+  f.toggle.onclick();assert.equal(f.ed.hidden,false);assert.equal(f.pv.hidden,true);assert.equal(f.ed.value,'My **draft**');assert(f.ed.focused);
+  assert.equal(vm.runInContext('hasUnsavedDraft()',f.ctx),true);
+  await f.saveButton.onclick();assert.deepEqual(f.saved,[{text:'My **draft**',expected:'Start'}]);
+});
+require('node:test')('returning to Edit rejects a stale preview, and a failed preview keeps the draft',async()=>{
+  const f=singlePaneEditor();f.toggle.onclick();f.toggle.onclick();
+  f.ed.value='Newer draft';f.hooks.input();f.toggle.onclick();
+  f.requests[1].resolve('<p>Newer draft</p>');await new Promise(setImmediate);
+  f.requests[0].resolve('<p>Old content</p>');await new Promise(setImmediate);
+  assert.equal(f.pv.innerHTML,'<p>Newer draft</p>');
+  f.toggle.onclick();f.toggle.onclick();f.requests[2].reject(new Error('Renderer unavailable'));await new Promise(setImmediate);
+  assert.match(f.pv.innerHTML,/Choose Edit/);f.toggle.onclick();assert.equal(f.ed.value,'Newer draft');assert.equal(f.saved.length,0);
+});

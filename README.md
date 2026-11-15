@@ -44,6 +44,8 @@ an AI generator, transcribe a recording or generate flashcards during import.
 
 Slides are optional, with private storage and local rendering (20 MiB per PDF).
 The **Notes** view keeps your own writing and manually added practice questions.
+It opens one editor; **Preview** shows formatted writing in the same space, and
+**Edit** returns to your draft. Preview does not save or replace the draft.
 See the [one-file import guide](docs/MARKDOWN_IMPORT.md) for the format and limits.
 The Python/Mac transcription and MCP tools documented below remain separate.
 

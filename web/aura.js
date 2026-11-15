@@ -19,7 +19,7 @@
   function updateTheme() {
     const theme = document.documentElement.dataset.theme;
     const sky = theme === "sky" || theme === "light";
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", sky ? "#faeafa" : "#21132f");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", sky ? "#f4eef6" : "#15131f");
   }
   document.addEventListener("visibilitychange", updateMotion);
   window.addEventListener("lumen-motion-changed", updateMotion);

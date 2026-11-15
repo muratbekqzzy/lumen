@@ -15,8 +15,8 @@ function fixture({theme='space',motion='full',reduced=false,hash='#/'}={}) {
  return {document,body,meta,classes,media,windowEvents,documentEvents,mediaEvents,atmosphere};
 }
 test('decorative atmosphere follows theme and stays outside the interactive app',()=>{
- const f=fixture();assert.equal(f.body.firstChild,f.atmosphere);assert.equal(f.atmosphere['aria-hidden'],'true');assert.equal(f.meta.content,'#21132f');
- f.document.documentElement.dataset.theme='sky';f.windowEvents['lumen-theme-changed']();assert.equal(f.meta.content,'#faeafa');
+ const f=fixture();assert.equal(f.body.firstChild,f.atmosphere);assert.equal(f.atmosphere['aria-hidden'],'true');assert.equal(f.meta.content,'#15131f');
+ f.document.documentElement.dataset.theme='sky';f.windowEvents['lumen-theme-changed']();assert.equal(f.meta.content,'#f4eef6');
  assert.equal(f.body.dataset.scene,'universe');
  f.document.documentElement.dataset.view='reading';f.windowEvents['lumen-scene-changed']();assert.equal(f.body.dataset.scene,'reading');
 });
