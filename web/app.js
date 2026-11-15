@@ -120,7 +120,8 @@ function renderSidebar() {
   $("#nav-foot").innerHTML = `
     <div class="row" data-id="archive" data-nav="#/n/archive" title="Archive">${ICONS.archive}<span class="label">Archive</span></div>
     <div class="row" data-nav="#/history" title="History">${ICONS.clock}<span class="label">History</span></div>
-    <button class="icon-btn" id="theme" title="Light / dark">${ICONS.moon}</button>`;
+    <button class="icon-btn" id="theme" title="Light / dark">${ICONS.moon}</button>
+    ${window.LumenCloud ? `<button class="icon-btn lumen-settings-btn" id="lumen-sync-settings" title="Settings" aria-label="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1.05 1.57V21h-4v-.03A1.7 1.7 0 0 0 8.9 19.4 1.7 1.7 0 0 0 7 19.74l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 13.95H3v-4h.03A1.7 1.7 0 0 0 4.6 8.9 1.7 1.7 0 0 0 4.26 7l-.06-.06 2.86-2.86.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10.05 3H14a1.7 1.7 0 0 0 1.05 1.6 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9 1.7 1.7 0 0 0 21 10.05V14a1.7 1.7 0 0 0-1.6 1z"/></svg><span class="lumen-sync-dot" aria-hidden="true"></span></button>` : ""}`;
   $$(".side .row").forEach((r) => {
     r.addEventListener("click", (e) => {
       if (e.target.closest("[data-more]")) { e.stopPropagation(); const n = NODES.get(r.dataset.id); openMenu(e, n); return; }
@@ -130,6 +131,7 @@ function renderSidebar() {
     if (r.dataset.id && !["inbox", "archive"].includes(r.dataset.id)) dragSource(r, r.dataset.id);
     if (r.dataset.id) dropTarget(r, r.dataset.id, "y");
   });
+  if ($("#lumen-sync-settings")) { $("#lumen-sync-settings").onclick = () => window.LumenCloud.settings(); window.LumenCloud.updateIndicator?.(); }
   $("#theme").onclick = () => {
     const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
     if (next === "dark") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = "light";
