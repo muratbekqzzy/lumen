@@ -1,0 +1,11 @@
+{
+  "name": "lumen-hosted-sync",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Existing Lumen browser app with authenticated automatic cross-device synchronization",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "node hosted/build.mjs",
+    "test": "node --test cloud/tests.test.cjs cloud/migrate.test.cjs cloud/editor.test.cjs hosted/*.test.mjs"
+  }
+}

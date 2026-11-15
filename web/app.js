@@ -46,6 +46,20 @@ let TREE = null;
 const NODES = new Map();   // id -> node
 const PARENT = new Map();  // id -> parent id
 let expanded = new Set(store.get("expanded", []));
+let activeEditor = null;
+const hasUnsavedDraft = () => Boolean(activeEditor?.element.isConnected && activeEditor.element.value !== activeEditor.savedText);
+function allowEditorReplacement(nextHash) {
+  if (hasUnsavedDraft()) {
+    // A background refresh must never replace a draft, including after blur.
+    if (nextHash === activeEditor.routeHash) return false;
+    if (!confirm("You have unsaved changes. Leave this page and discard them?")) {
+      history.replaceState(null, "", activeEditor.routeHash);
+      return false;
+    }
+  }
+  activeEditor = null;
+  return true;
+}
 
 async function loadTree() {
   TREE = await api("GET", "/api/tree");
@@ -632,7 +646,11 @@ async function pageLecture(id, tab) {
   $("#lmore").onclick = (e) => openMenu(e, NODES.get(id) || { id, title: m.title, kind: "lecture" });
   if ($("#edit-captions")) $("#edit-captions").onclick = () => window.LumenPanopto.edit(id);
   if (busy) { poll = setInterval(async () => { const j = await api("GET", "/api/lectures/" + id); if (!["processing", "queued", "transcribing"].includes(j.meta.status)) { clearInterval(poll); await refresh(); } }, 5000); return; }
-  $$(".tab").forEach((b) => b.onclick = () => { history.replaceState(null, "", `#/lecture/${id}/${b.dataset.t}`); pageLectureTab(id, b.dataset.t); });
+  $$(".tab").forEach((b) => b.onclick = () => {
+    const nextHash = `#/lecture/${id}/${b.dataset.t}`;
+    if (!allowEditorReplacement(nextHash)) return;
+    history.replaceState(null, "", nextHash); pageLectureTab(id, b.dataset.t);
+  });
   pageLectureTab(id, tab);
   wireAudio();
 }
@@ -650,7 +668,7 @@ function pageLectureTab(id, tab) {
     body.innerHTML = ks.length ? ks.map((k) => `<div class="prose">${gen[k]}</div><hr>`).join("") : emptyAsk("explanations", `Explain the hardest idea in my lecture “${t}” simply, with an interactive graph, and save it to Lumen.`);
   } else if (tab.startsWith("g:")) body.innerHTML = `<div class="prose">${gen[tab.slice(2)]}</div>`;
   else if (tab === "cards") body.innerHTML = renderCards(d.generated["flashcards.md"]) || emptyAsk("flashcards", `Make flashcards for my lecture “${t}” in Lumen.`);
-  else if (tab === "notes") return renderEditor(body, d.my_notes, async (text) => { const r = await api("PUT", `/api/lectures/${id}/notes`, { body: text }); d.my_notes = text; return r.html; }, "Write your own notes. AI assistants can read these but never overwrite them.");
+  else if (tab === "notes") return renderEditor(body, d.my_notes, async (text, expectedBody) => { const r = await api("PUT", `/api/lectures/${id}/notes`, { body: text, expectedBody }); d.my_notes = text; return r; }, "Write your own notes. AI assistants can read these but never overwrite them.");
   else if (tab === "slides") renderSlides(body, id);
   $$("[data-copy]", body).forEach((b) => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); toast("Prompt copied"); });
   $$(".flash-card", body).forEach((c) => c.onclick = () => c.classList.toggle("flip"));
@@ -714,13 +732,36 @@ function wireAudio() {
 // ---- notes
 function renderEditor(body, text, save, hint) {
   body.innerHTML = `<div class="toolbar"><button class="btn primary" id="save">Save</button><span style="color:var(--muted);font-size:13px;align-self:center">${h(hint || "Markdown supported. ⌘S to save.")}</span></div>
+    <p id="editor-sync-notice" role="status" hidden style="color:var(--muted);font-size:13px">Changes arrived from another device. Your draft is kept here; saving will preserve both versions if needed.</p>
     <div class="editor"><textarea id="ed" spellcheck="true">${h(text)}</textarea><div class="preview prose" id="pv"></div></div>`;
-  const ed = $("#ed"), pv = $("#pv");
+  const ed = $("#ed"), pv = $("#pv"), button = $("#save");
+  const editor = { element: ed, savedText: text || "", routeHash: location.hash, saving: false,
+    accountId: window.LumenCloud?.activeAccountId || null };
+  activeEditor = editor;
   let t;
   const preview = async () => { pv.innerHTML = await api("POST", "/api/render", { body: ed.value }); enhance(pv); };
-  ed.addEventListener("input", () => { clearTimeout(t); t = setTimeout(preview, 350); $("#save").textContent = "Save •"; });
-  const doSave = async () => { await save(ed.value); $("#save").textContent = "Saved"; toast("Saved (versioned, you can always go back)"); };
-  $("#save").onclick = doSave;
+  ed.addEventListener("input", () => { clearTimeout(t); t = setTimeout(preview, 350); button.textContent = ed.value === editor.savedText ? "Saved" : "Save •"; });
+  const doSave = async () => {
+    if (editor.saving) return;
+    if (editor.accountId !== (window.LumenCloud?.activeAccountId || null)) {
+      toast("The signed-in account changed. Copy your draft before opening the other account’s library.");
+      return;
+    }
+    const sent = ed.value;
+    editor.saving = true; button.disabled = true; button.textContent = "Saving…";
+    try {
+      const result = await save(sent, editor.savedText);
+      editor.savedText = sent;
+      button.textContent = ed.value === sent ? "Saved" : "Save •";
+      toast(result?.conflictPreserved ? "Saved. The other device’s version is kept as a conflict copy." : "Saved (versioned, you can always go back)");
+    } catch (error) {
+      button.textContent = "Save •";
+      console.error("Could not save note", error);
+    } finally {
+      editor.saving = false; button.disabled = false;
+    }
+  };
+  button.onclick = doSave;
   ed.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); doSave(); } });
   preview();
 }
@@ -735,7 +776,7 @@ async function pageNote(id, edit) {
   $("#ttl").onclick = () => renameDialog(node);
   $("#nmore").onclick = (e) => openMenu(e, node);
   $("#edit").onclick = () => go(edit ? `#/note/${id}` : `#/note/${id}?edit`);
-  if (edit) renderEditor($("#nb"), n.body, async (text) => (await api("PUT", `/api/notes/${id}`, { body: text })).html);
+  if (edit) renderEditor($("#nb"), n.body, (text, expectedBody) => api("PUT", `/api/notes/${id}`, { body: text, expectedBody }));
   else { $("#nb").innerHTML = n.body.trim() ? `<div class="prose">${n.html}</div>` : `<div class="empty"><h3>Empty note</h3><p>Click Edit to start writing.</p></div>`; enhance($("#nb")); }
 }
 
@@ -769,6 +810,7 @@ function pageMissing() { main().innerHTML = `<div class="page"><div class="empty
 // ------------------------------------------------------------------ router
 let firstRoute = true;
 async function route() {
+  if (!allowEditorReplacement(location.hash)) return;
   // smooth cross-fade between pages where the browser supports it
   if (!firstRoute && document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
     let done; const ready = new Promise((r) => (done = r));
@@ -811,10 +853,19 @@ $("#main").addEventListener("click", () => $(".side").classList.remove("open"));
 addEventListener("focus", () => loadTree().catch(() => {}));
 let remoteRefreshNeeded=false;
 function refreshAfterSync(){
- if(document.activeElement?.matches("textarea,input,[contenteditable=true]")) { remoteRefreshNeeded=true; return; }
+ if(hasUnsavedDraft() || activeEditor?.saving || document.activeElement?.matches("textarea,input,[contenteditable=true]")) {
+   remoteRefreshNeeded=true;
+   const notice = $("#editor-sync-notice");
+   if (notice) notice.hidden = false;
+   return;
+ }
  remoteRefreshNeeded=false;
  loadTree().then(route).catch(console.error);
 }
 addEventListener("lumen-remote-updated", refreshAfterSync);
 document.addEventListener("focusout",()=>{if(remoteRefreshNeeded)setTimeout(refreshAfterSync,150)});
+addEventListener("beforeunload", (event) => {
+  if (!hasUnsavedDraft()) return;
+  event.preventDefault(); event.returnValue = "";
+});
 loadTree().then(route);

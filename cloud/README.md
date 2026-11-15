@@ -1,94 +1,79 @@
-# Lumen
+# Lumen — automatic device sync
 
-Live web interface: https://muratbekqzzy.github.io/lumen/
+Synced app: https://lumen-knowledge-sync.noisyagate9.chatgpt.site
 
-This is a **separate browser edition** of Lumen. The existing Python/Mac app remains unchanged.
-The browser edition supports notes, sections, modules, graph, search, offline work,
-backup import/export, and encrypted GitHub sync. The Mac app still handles recordings
-and transcription, and is the source of original PDFs and media. The two apps do not
-automatically exchange the original on-disk vault.
+Original browser app: https://muratbekqzzy.github.io/lumen/
 
-## Configure encrypted automatic sync
+## Use it on any device
 
-1. Open Lumen and select the **small Settings gear beside the theme control**
-   at the bottom of the sidebar. There is no floating sync toolbar.
-2. Create a **separate private GitHub repository**, e.g. `lumen-private-data`,
-   with no starter files. Never store personal notes in the public app-code repo.
-3. Create a **fine-grained GitHub personal access token** limited to that private
-   repository with **Contents: Read and write** access.
-4. Enter your GitHub username, private data repository, access token, and a
-   separate **encryption password (12+ characters)**. Check **Stay connected
-   on this device** if this is your trusted computer or phone.
-5. Repeat this connection once on every other device.
+Open the synced app and sign in with the same ChatGPT account on each device.
+The app is private to its owner. No GitHub token, repository, encryption password,
+Python installation, terminal command, or running Mac is needed for browser sync.
+Settings shows the signed-in account and the current sync status.
 
-Once connected, Lumen saves changes locally immediately, pushes shortly after
-edits, polls GitHub approximately **every 15 seconds while an app tab is active**,
-and checks immediately after returning to the tab, regaining internet, or
-opening Lumen. No manual Sync click is required. The gear has a small status
-dot (green = synced, amber = syncing/pending, red = error).
+Changes save in a device-local, account-scoped cache immediately. While Lumen is
+open, edits upload automatically, other devices check about every five seconds,
+and returning to the app or reconnecting triggers an immediate check. Failed
+requests retry with a bounded backoff. An expired session shows a sign-in link.
+Browser throttling and network conditions can delay updates. A closed browser
+cannot sync; pending saved edits upload the next time the app opens online.
 
-GitHub's Contents API cannot send real-time push notifications to a static
-website. Expect a delay of up to approximately 15 seconds for changes to appear
-on another active device, sometimes longer because of network delays,
-browser background throttling or API errors. Sync does not run while
-Lumen is completely closed.
+The hosted backend uses authenticated per-user storage, atomic revision checks,
+and three-way merging. Concurrent edits to the same record keep a deterministic
+**(conflict copy)**; review both versions in the library. Undo is a new synchronized
+change. Incoming updates do not replace an unsaved editor draft. The sync
+indicator distinguishes locally saved changes, syncing, synced, offline and errors.
 
-With **Stay connected on this device**, the access token and encryption
-password are saved in the browser's local storage so subsequent visits sync
-without requesting them again. This is convenient but increases exposure if
-that browser/device is compromised or shared. On shared devices, uncheck it
-so credentials persist only in the current browser session. Use Settings →
-Disconnect to clear saved credentials on the current device. Never paste
-tokens or passwords into ChatGPT or GitHub source files.
+## Existing notes
 
-Lumen encrypts the vault with AES-256-GCM and PBKDF2-SHA256 before uploading
-`lumen-vault.enc.json`. Every update uses the GitHub file SHA as an optimistic
-concurrency guard, with retries on conflicts. Each device tracks record
-fingerprints from the last successful sync: if the *same record* was edited on
-two devices, it preserves a deterministic **(conflict copy)** rather than
-silently dropping an edit. Review and reconcile any such copies manually.
-The GitHub Contents API has file-size limitations, so periodically export
-backups (Settings → Export backup), especially for large lecture collections.
+The original address keeps your existing browser library and offers **Open synced
+Lumen** and backup export. The new app attempts a one-time, origin-checked import
+from this browser's original library. Browsers that isolate embedded storage may
+require exporting a backup at the original address and choosing **Settings →
+Import backup** in the new app. Existing notes are never deleted by migration.
+Only library records transfer; old credentials are never sent to the hosted app.
+An encrypted GitHub copy that exists only remotely is not automatically imported;
+use an existing device's locally saved library or a previously exported backup.
+The old app no longer asks for or uses GitHub credentials. Existing remote encrypted
+files remain untouched.
 
-Encrypted GitHub sync is not a substitute for backup. Local browser data
-can be cleared by site-data cleanup or browser privacy settings.
+The Python/Mac app and its `~/Knowledge` folder are a separate library. To bring
+that library over, use the existing `tools/export_cloud.py` exporter and import its
+JSON backup. This is a one-time merged copy, not a live sync of Mac folders.
+Original recordings, original PDF files and the local Python MCP server are not
+part of browser sync. Imported lecture text, notes, captions, flashcards, sections,
+modules and their organization are synchronized.
 
-## Import your existing Mac knowledge vault
+## Privacy and backups
 
-From the Lumen project folder on your Mac:
+Authentication is provided by Sites. Every read/write is authorized on the server
+using the signed-in account's stable ID; client-supplied account IDs cannot grant
+access. Sessions are managed by the host, with no manually managed secrets in
+Lumen. Data travels over HTTPS and lives in private hosted storage. This mode does
+not use the previous password-based end-to-end encryption: the authenticated
+backend processes library content to store it.
 
-```bash
-uv sync
-uv run python tools/export_cloud.py
-```
+Accounts have separate local caches and checkpoints. Signing out clears the active
+account's local library cache. On a shared device, sign out when finished. Browser
+storage can be cleared by privacy settings; export backups regularly from Settings.
+A library can contain up to 8 MiB in the current sync format; larger libraries
+remain saved locally and show a clear backup/export message instead of claiming
+success. Sync is not a substitute for independent backups.
 
-This writes `lumen-cloud-import.json` into the current folder. Open Lumen,
-choose **Sync settings → Import backup**, and select that file.
+## Development and publication
 
-The exporter includes Markdown notes, sections, modules, imported lecture study-pack
-text, flashcards, and lecture notes. It deliberately excludes original PDF slides,
-recordings, transcripts linked to media, Git history, and hidden/source files.
+- `cloud/cloud.js`: browser adapter, local persistence, automatic synchronization.
+- `cloud/migrate.js`: validated one-time migration from the original origin.
+- `hosted/sync.mjs`: authenticated sync API and atomic D1 snapshots.
+- `hosted/migrations/`: database schema migrations applied during deployment.
+- `hosted/build.mjs`: bundles the existing UI and API into a hosted Worker.
+- `.openai/hosting.json`: existing Site identity and storage binding.
 
-Importing creates a **merged copy**, not a bidirectional live bridge to ~/Knowledge.
-If you continue editing separately in the original Mac app, export/import again or
-use the web app as your primary editor.
-
-## Publishing and updates
-
-A GitHub Actions workflow in `.github/workflows/lumen-cloud.yml` publishes
-`cloud/index.html`, `cloud/cloud.js`, and static assets from `web/` after
-changes to `main`. Check **Actions → Publish Lumen** for deployment status.
-
-Do not move tokens or vault content into `web/`, `cloud/`, or public git history.
-
-## Current limitations
-
-- The website is public but the data repository is private and encrypted.
-- Browser edition: no on-device Whisper processing or Python MCP server.
-- Changes to the code can be made through GitHub pull requests or with ChatGPT's
-  connected GitHub access.
-- Synchronization requires an active authorized session and internet connection;
-  it cannot run continuously when the browser is closed.
+Run `node --test cloud/tests.test.cjs cloud/migrate.test.cjs hosted/*.test.mjs`
+and `node hosted/build.mjs` to validate/build. Deployment requires source push and
+the Sites publishing workflow; rebuilding files alone does not update production.
+The GitHub Actions workflow publishes the original-address browser app and
+migration entry point after changes to `main`.
 
 ## Panopto lecture importing
 
@@ -101,8 +86,7 @@ Use **Lumen → a section or Inbox → Add lecture**.
    the PDF lecture slides. Select **Structure lecture and save**.
 4. Open the lecture and choose **Review captions** to correct technical terms.
    Saving corrections regenerates the extractive study-pack outline and
-   draft flashcards. Changes save offline immediately, then sync with GitHub
-   when your encrypted sync connection is active.
+   draft flashcards. Changes save offline immediately, then sync with your account when you are online.
 
 Lumen accepts caption text instead of rerunning Whisper, and this avoids
 the browser/Python mismatch that previously blocked lecture uploading.

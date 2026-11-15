@@ -33,6 +33,16 @@ The vault is readable without Lumen. Each lecture keeps `Source/` (originals, ne
 `Generated/` (AI study material, can be regenerated) and `My Notes/` (yours, never overwritten by AI).
 Your vault is **not** part of this repository.
 
+## Open it without installing anything
+
+Use [Lumen with automatic device sync](https://lumen-knowledge-sync.noisyagate9.chatgpt.site).
+Sign in with the same account on your phone, tablet and computer. Notes and library
+changes sync automatically while the app is open; offline changes upload when you
+reconnect. No Python, terminal or GitHub token is needed for the browser app.
+See [browser sync and existing-note migration](cloud/README.md) for details.
+
+The instructions below run the separate local Mac app for transcription and MCP.
+
 ## Run it
 
 Requires macOS on Apple Silicon (for on-device Whisper), Python 3.12+ and [uv](https://docs.astral.sh/uv/).

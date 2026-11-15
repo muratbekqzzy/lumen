@@ -13,3 +13,11 @@ work/
 bin/
 .claude/
 .DS_Store
+
+# Rebuildable hosted Worker and tooling state
+dist/
+_site/
+node_modules/
+.sites-runtime/
+.wrangler/
+outputs/

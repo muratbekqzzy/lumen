@@ -1,16 +1,30 @@
-/* Lumen: browser adapter, offline data and encrypted GitHub sync.
+/* Lumen: local-first browser adapter and authenticated automatic sync.
    Does not change or upload the local ~/Knowledge vault. */
 (()=>{"use strict";
-const DATA="lumen.cloud.data.v1", CFG="lumen.cloud.sync.v1", HISTORY="lumen.cloud.history.v1";
+const LEGACY_DATA="lumen.cloud.data.v1", HOSTED=window.LUMEN_HOSTED===true;
+const OWNER_KEY="lumen.account.v1", PREFIX="lumen.account.data.v1.";
+let owner=null, DATA=LEGACY_DATA, HISTORY="lumen.cloud.history.v1";
 const now=()=>Date.now(), id=p=>p+"_"+crypto.randomUUID().slice(0,12);
-const base=()=>({version:1,records:{root:{id:"root",kind:"root",title:"Knowledge",parent:null,created:now(),updated:now()},inbox:{id:"inbox",kind:"inbox",title:"Inbox",parent:null,created:now(),updated:now()},archive:{id:"archive",kind:"archive",title:"Archive",parent:null,created:now(),updated:now()}},deleted:{}});
+const base=()=>({version:1,records:{root:{id:"root",kind:"root",title:"Knowledge",parent:null,created:0,updated:0},inbox:{id:"inbox",kind:"inbox",title:"Inbox",parent:null,created:0,updated:0},archive:{id:"archive",kind:"archive",title:"Archive",parent:null,created:0,updated:0}},deleted:{}});
 const copy=x=>JSON.parse(JSON.stringify(x)), load=(k,f)=>{try{return JSON.parse(localStorage.getItem(k))||f}catch{return f}};
-let db=load(DATA,base()), history=load(HISTORY,[]),cfg=load(CFG,null), busy=false, timer, lastError="",lastSuccess=0;
+if(HOSTED){owner=load(OWNER_KEY,null);DATA=PREFIX+(owner||"guest");HISTORY=DATA+".history"}
+// Retire the old manually supplied credentials; account sessions stay server-managed.
+try{localStorage.removeItem("lumen.cloud.auth.v1");localStorage.removeItem("lumen.cloud.sync.v1");sessionStorage.removeItem("lumen.cloud.session")}catch{}
+let db=load(DATA,base()),history=load(HISTORY,[]),busy=false,lastError="",lastSuccess=0;
+const openedVersions=new Map();
+let resolveReady;const whenReady=new Promise(resolve=>{resolveReady=resolve});
 const save=()=>{try{localStorage.setItem(DATA,JSON.stringify(db));window.dispatchEvent(new Event("lumen-changed"));queueSync()}catch(e){alert("Storage is full. Export a backup before continuing.");throw e}};
 const snapshot=message=>{history.push({date:new Date().toISOString(),message,db:copy(db)});if(history.length>30)history.shift();try{localStorage.setItem(HISTORY,JSON.stringify(history))}catch{}};
-const mod=(message,fn)=>{snapshot(message);const result=fn();save();return result};
+const mod=(message,fn)=>{
+ const before=copy(db),beforeHistory=copy(history);
+ try{snapshot(message);const result=fn(),entry=history[history.length-1];
+  entry.changed=[...new Set([...Object.keys(before.records),...Object.keys(db.records),...Object.keys(before.deleted),...Object.keys(db.deleted)])].filter(key=>signature(before,key)!==signature(db,key));
+  entry.after=Object.fromEntries(entry.changed.map(key=>[key,signature(db,key)]));
+  localStorage.setItem(HISTORY,JSON.stringify(history));save();return result;
+ }catch(e){db=before;history=beforeHistory;try{localStorage.setItem(HISTORY,JSON.stringify(history))}catch{}throw e}
+};
 const get=i=>db.records[i]&&!db.deleted[i]?db.records[i]:null;
-const touch=o=>{o.updated=now();return o};
+const touch=o=>{o.updated=Math.max(now(),Number(o.updated||0)+1,Number(db.deleted[o.id]||0)+1);delete db.deleted[o.id];return o};
 const requireNode=i=>{const x=get(i);if(!x)throw Error("Item not found");return x};
 const kids=p=>Object.values(db.records).filter(n=>n.parent===p&&!db.deleted[n.id]).sort((a,b)=>(a.position??a.created??0)-(b.position??b.created??0)||a.title.localeCompare(b.title));
 const asTree=(node)=>({...node,children:(node.kind==="lecture"?[]:kids(node.id).map(asTree))});
@@ -31,14 +45,14 @@ const words=x=>String(x||"").toLowerCase().split(/\s+/).filter(Boolean);
 function request(method,path,body){const p=path.split("?")[0],parts=p.split("/").filter(Boolean);const v=parts[1],oid=parts[2];
 if(method==="GET"&&p==="/api/tree")return tree();
 if(method==="GET"&&p==="/api/history")return history.slice(-30).reverse().map(x=>({date:x.date,message:x.message}));
-if(method==="POST"&&p==="/api/undo"){const last=history.pop();if(!last)throw Error("Nothing to undo");db=last.db;localStorage.setItem(HISTORY,JSON.stringify(history));save();return {undone:last.message}}
+if(method==="POST"&&p==="/api/undo")return undo();
 if(method==="POST"&&p==="/api/containers")return mod("Create section or module",()=>{const parent=requireNode(body.parent_id||"root"),kind=parent.id==="root"?"section":"module";const n={id:id(kind[0]),parent:parent.id,kind,title:body.title,icon:body.icon||"",color:body.color||"",type:body.type||"",description:"",created:now(),updated:now()};db.records[n.id]=n;return n});
 if(method==="PATCH"&&v==="containers"){return mod("Update section",()=>{let n=requireNode(oid);for(const k of ["icon","color","type","description"])if(body[k]!==undefined)n[k]=body[k];return touch(n)})}
 if(method==="POST"&&p==="/api/notes")return mod("Create note",()=>{const parent=requireNode(body.parent_id||"inbox");const n={id:id("n"),kind:"note",parent:parent.id,title:body.title||"Untitled",body:body.body||"",created:now(),updated:now(),author:"you"};db.records[n.id]=n;return n});
-if(method==="GET"&&v==="notes"){const n=requireNode(oid);return {...n,html:md(n.body),breadcrumbs:breadcrumbs(n)}}
-if(method==="PUT"&&v==="notes")return mod("Update note",()=>{const n=requireNode(oid);n.body=body.body;touch(n);return {...n,html:md(n.body)}});
+if(method==="GET"&&v==="notes"){const n=requireNode(oid);openedVersions.set(oid,fingerprint(n));return {...n,html:md(n.body),breadcrumbs:breadcrumbs(n)}}
+if(method==="PUT"&&v==="notes")return mod("Update note",()=>{const n=preserveEditorVersion(oid,body),conflictPreserved=n.body!==body.body&&body.expectedBody!==undefined&&n.body!==body.expectedBody;n.body=body.body;touch(n);return {...n,html:md(n.body),conflictPreserved}});
 if(method==="POST"&&p==="/api/rename")return mod("Rename item",()=>{const n=requireNode(body.id);n.title=body.title;return touch(n)});
-if(method==="POST"&&p==="/api/move")return mod("Move item",()=>{const n=requireNode(body.id),parent=requireNode(body.parent_id);let up=parent;while(up){if(up.id===n.id)throw Error("Cannot move a folder into itself");up=get(up.parent)}n.parent=parent.id;n.position=body.index===undefined?now():body.index;return touch(n)});
+if(method==="POST"&&p==="/api/move")return mod("Move item",()=>{const n=requireNode(body.id),parent=requireNode(body.parent_id);if(protectedIds.has(n.id))throw Error("This library folder cannot be moved");if(!["root","inbox","archive","section","module"].includes(parent.kind))throw Error("Choose a folder as the destination");let up=parent;while(up){if(up.id===n.id)throw Error("Cannot move a folder into itself");up=get(up.parent)}n.parent=parent.id;n.position=body.index===undefined?now():body.index;return touch(n)});
 if(method==="POST"&&p==="/api/reorder")return mod("Reorder items",()=>{body.ids.forEach((i,idx)=>{const n=get(i);if(n&&n.parent===body.parent_id){n.position=idx;touch(n)}});return {ok:true}});
 if(method==="POST"&&p==="/api/archive")return mod("Archive item",()=>{let n=requireNode(body.id);n.previousParent=n.parent;n.parent="archive";touch(n);return {ok:true}});
 if(method==="POST"&&p==="/api/restore")return mod("Restore item",()=>{let n=requireNode(body.id);n.parent=get(n.previousParent)?n.previousParent:"inbox";touch(n);return {ok:true}});
@@ -47,218 +61,215 @@ if(method==="GET"&&p==="/api/graph")return graph();
 if(method==="GET"&&v==="concept"){let name=decodeURIComponent(parts.slice(2).join("/"));let mentions=[];for(const n of Object.values(db.records)){if(db.deleted[n.id])continue;let s=(n.body||"")+"\n"+(n.description||"");if(s.toLowerCase().includes("[["+name.toLowerCase()))mentions.push({id:n.id,kind:n.kind,title:n.title,part:n.kind==="note"?"note":"description",place:breadcrumbs(n).slice(0,-1).map(x=>x.title).join(" › "),snippet_html:md(s.slice(0,260))})}return {name,mentions}}
 if(method==="GET"&&p==="/api/search"){const q=new URLSearchParams(path.split("?")[1]).get("q")||"";return Object.values(db.records).filter(n=>!db.deleted[n.id]&&words(q).every(w=>(n.title+" "+(n.body||"")+" "+(n.description||"")).toLowerCase().includes(w))).slice(0,30).map(n=>({id:n.id,title:n.title,kind:n.kind,place:breadcrumbs(n).map(x=>x.title).join(" › "),snippet:escap((n.body||n.description||"").slice(0,240))}))}
 if(method==="POST"&&p==="/api/render")return {__html:md(body.body)};
-if(method==="GET"&&v==="lectures"){const n=requireNode(oid);const generated=n.generated||{},segments=n.segments||[];return {meta:n,chunks:(n.chunks||[]).map(c=>({...c,said:(c.segmentIds||[]).map(i=>segments[i]).filter(Boolean),link:n.panopto_url?(n.panopto_url+(n.panopto_url.includes("?")?"&":"?")+"start="+Math.floor(c.start)):c.link||"",time:Math.floor(c.start/60)+":"+String(Math.floor(c.start%60)).padStart(2,"0")})),pages_not_shown:[],generated,generated_html:Object.fromEntries(Object.entries(generated).map(([k,v])=>[k,md(v)])),my_notes:n.body||"",my_notes_html:md(n.body),has_audio:false,breadcrumbs:breadcrumbs(n)}}
+if(method==="GET"&&v==="lectures"){const n=requireNode(oid);openedVersions.set(oid,fingerprint(n));const generated=n.generated||{},segments=n.segments||[];return {meta:n,chunks:(n.chunks||[]).map(c=>({...c,said:(c.segmentIds||[]).map(i=>segments[i]).filter(Boolean),link:n.panopto_url?(n.panopto_url+(n.panopto_url.includes("?")?"&":"?")+"start="+Math.floor(c.start)):c.link||"",time:Math.floor(c.start/60)+":"+String(Math.floor(c.start%60)).padStart(2,"0")})),pages_not_shown:[],generated,generated_html:Object.fromEntries(Object.entries(generated).map(([k,v])=>[k,md(v)])),my_notes:n.body||"",my_notes_html:md(n.body),has_audio:false,breadcrumbs:breadcrumbs(n)}}
 if(method==="POST"&&p==="/api/lectures/from-panopto")return mod("Import Panopto lecture",()=>{const parent=requireNode(body.parent_id||"inbox");if(!["inbox","section","module"].includes(parent.kind))throw Error("Choose a section or the Inbox");if(!Array.isArray(body.segments)||!body.segments.length)throw Error("Transcript is empty");const n={...body,id:id("l"),kind:"lecture",parent:parent.id,created:now(),updated:now(),status:"complete",body:"",title:body.title||"Panopto lecture",source:"panopto-captions"};db.records[n.id]=n;return {id:n.id}})
-if(method==="PUT"&&v==="lectures"&&parts[3]==="transcript")return mod("Correct Panopto captions",()=>{const n=requireNode(oid);if(!Array.isArray(body.segments)||!body.segments.length)throw Error("Transcript cannot be empty");n.segments=body.segments;n.chunks=body.chunks||n.chunks;n.generated=body.generated||n.generated;touch(n);return {ok:true}})
+if(method==="PUT"&&v==="lectures"&&parts[3]==="transcript")return mod("Correct Panopto captions",()=>{const n=preserveEditorVersion(oid);if(!Array.isArray(body.segments)||!body.segments.length)throw Error("Transcript cannot be empty");n.segments=body.segments;n.chunks=body.chunks||n.chunks;n.generated=body.generated||n.generated;touch(n);return {ok:true}})
 
-if(method==="PUT"&&v==="lectures"&&parts[3]==="notes")return mod("Edit lecture notes",()=>{let n=requireNode(oid);n.body=body.body;touch(n);return {html:md(n.body)}});
+if(method==="PUT"&&v==="lectures"&&parts[3]==="notes")return mod("Edit lecture notes",()=>{let n=preserveEditorVersion(oid,body),conflictPreserved=n.body!==body.body&&body.expectedBody!==undefined&&n.body!==body.expectedBody;n.body=body.body;touch(n);return {html:md(n.body),conflictPreserved}});
 if(method==="POST"&&p==="/api/lectures")throw Error("Lecture transcription runs on the Mac version. The browser version supports notes and existing text only.");
 throw Error("This feature requires the Mac version: "+method+" "+p);
 }
 const realFetch=window.fetch.bind(window);
 window.fetch=async(input,init={})=>{const u=typeof input==="string"?input:input.url;let url;try{url=new URL(u,location.href)}catch{return realFetch(input,init)}
-if(!url.pathname.startsWith("/api/"))return realFetch(input,init);try{let method=(init.method||"GET").toUpperCase(),b=init.body,parsed=b instanceof FormData?Object.fromEntries(b.entries()):typeof b==="string"?JSON.parse(b):{};const out=request(method,url.pathname+url.search,parsed);return out?.__html!==undefined?new Response(out.__html,{headers:{"Content-Type":"text/html"}}):result(out)}catch(e){return result({detail:e.message||String(e)},400)}};
-const bytes=s=>new TextEncoder().encode(s), toB64=b=>btoa(String.fromCharCode(...new Uint8Array(b))),fromB64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
-async function derive(pass,salt){let base=await crypto.subtle.importKey("raw",bytes(pass),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:310000,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"])}
-async function encrypt(obj,pass){let salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));let key=await derive(pass,salt),data=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,bytes(JSON.stringify(obj)));return {v:1,alg:"AES-256-GCM",kdf:"PBKDF2-SHA256",iterations:310000,salt:toB64(salt),iv:toB64(iv),data:toB64(data)}}
-async function decrypt(payload,pass){if(payload.v!==1||payload.alg!=="AES-256-GCM")throw Error("Unsupported encrypted data format");let key=await derive(pass,fromB64(payload.salt));return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:fromB64(payload.iv)},key,fromB64(payload.data))))}
-const encode64=s=>btoa(unescape(encodeURIComponent(s))),decode64=s=>decodeURIComponent(escape(atob(s.replace(/\s/g,""))));
+if(url.origin!==new URL(location.href).origin||!url.pathname.startsWith("/api/")||url.pathname==="/api/sync")return realFetch(input,init);try{let method=(init.method||"GET").toUpperCase(),b=init.body,parsed=b instanceof FormData?Object.fromEntries(b.entries()):typeof b==="string"?JSON.parse(b):{};if(HOSTED&&method!=="GET"&&method!=="POST"&&method!=="PUT"&&method!=="PATCH")throw Error("Unsupported method");
+if(HOSTED&&!owner&&method!=="GET"&&url.pathname!=="/api/render")throw Error("Connecting your account. Please wait before editing.");
+const out=request(method,url.pathname+url.search,parsed);return out?.__html!==undefined?new Response(out.__html,{headers:{"Content-Type":"text/html"}}):result(out)}catch(e){return result({detail:e.message||String(e)},400)}};
 
-/* Cross-device sync. GitHub is the canonical encrypted copy while browser storage
-   remains usable offline. Each browser tracks the last confirmed record versions,
-   so concurrent edits to one item are preserved as conflict copies. */
-const AUTH_KEY="lumen.cloud.auth.v1", SESSION_KEY="lumen.cloud.session", BASELINE_KEY="lumen.cloud.synced.v2";
-const fingerprint=obj=>{const str=JSON.stringify(obj),a=16777619;let h=2166136261,j=2246822519;
- for(let i=0;i<str.length;i++){const c=str.charCodeAt(i);h=Math.imul(h^c,a);j=Math.imul(j+c,1597334677)}
- return (h>>>0).toString(16).padStart(8,"0")+(j>>>0).toString(16).padStart(8,"0")};
-const fingerprints=data=>Object.fromEntries(Object.entries(data.records||{}).map(([id,r])=>[id,fingerprint(r)]));
-let baseline=load(BASELINE_KEY,null);
-let auth=load(AUTH_KEY,null)||load(SESSION_KEY,null);
-if(auth&&(!cfg||auth.owner!==cfg.owner||auth.repo!==cfg.repo))auth=null;
-let token=auth?.token||"",passphrase=auth?.passphrase||"",pending=false,dirtyVersion=0,syncTimer=null,lastSyncState="offline",lastSyncMessage="Not connected";
-const credentials=()=>Boolean(cfg&&token&&passphrase);
-const validCfg=c=>c&&/^[a-zA-Z0-9-]{1,39}$/.test(c.owner)&&/^[a-zA-Z0-9._-]{1,100}$/.test(c.repo);
+// A checkpoint describes the last server-confirmed version of every record.
+// Three-way merging preserves both sides of concurrent edits, including deletes.
+const stable=value=>JSON.stringify(value,(_,v)=>v&&typeof v==="object"&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
+const fingerprint=obj=>{const str=stable(obj);let a=2166136261,b=2246822519;for(let i=0;i<str.length;i++){a=Math.imul(a^str.charCodeAt(i),16777619);b=Math.imul(b+str.charCodeAt(i),1597334677)}return (a>>>0).toString(16)+(b>>>0).toString(16)};
+const protectedIds=new Set(["root","inbox","archive"]);
+const live=(state,key)=>state.records[key]&&!(Number(state.deleted[key]||0)>=Number(state.records[key].updated||0)&&state.deleted[key])?state.records[key]:null;
+const signature=(state,key)=>live(state,key)?fingerprint(live(state,key)):state.deleted[key]?"deleted:"+state.deleted[key]:null;
+let baseline=load(DATA+".checkpoint",null),user=null,pending=false,dirtyVersion=0,syncTimer=null,retryCount=0,verified=false,lastSyncState="offline",lastSyncMessage="Saved on this device";
 function updateIndicator(){
  const b=document.querySelector("#lumen-sync-settings");
  if(b){b.dataset.sync=lastSyncState;b.title="Settings · "+lastSyncMessage;b.setAttribute("aria-label","Settings · "+lastSyncMessage)}
- const line=document.querySelector("#lumen-sync-status-detail");
- if(line){line.textContent=lastSyncMessage;line.dataset.sync=lastSyncState}
+ const line=document.querySelector("#lumen-sync-status-detail");if(line){line.textContent=lastSyncMessage;line.dataset.sync=lastSyncState}
 }
 function status(state,message){lastSyncState=state;lastSyncMessage=message;lastError=state==="error"?message:"";updateIndicator()}
-const headers=()=>({Authorization:"Bearer "+token,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"});
-const endpoint=()=>("https://api.github.com/repos/"+encodeURIComponent(cfg.owner)+"/"+encodeURIComponent(cfg.repo)+"/contents/lumen-vault.enc.json");
-const repoEndpoint=()=>("https://api.github.com/repos/"+encodeURIComponent(cfg.owner)+"/"+encodeURIComponent(cfg.repo));
-function recordHistory(message){history.push({date:new Date().toISOString(),message,db:copy(db)});if(history.length>30)history.shift();try{localStorage.setItem(HISTORY,JSON.stringify(history))}catch{}}
-function persistBaseline(sent){baseline={owner:cfg.owner,repo:cfg.repo,records:fingerprints(sent)};try{localStorage.setItem(BASELINE_KEY,JSON.stringify(baseline))}catch(e){console.warn("Could not store Lumen sync checkpoint",e)}}
-function baselineRecords(){return baseline&&cfg&&baseline.owner===cfg.owner&&baseline.repo===cfg.repo?baseline.records||{}:{}}
-function mergeStates(local,remote){
- const out=copy(local),old=baselineRecords();
- out.records||={};out.deleted||={};
- for(const [key,t] of Object.entries(remote.deleted||{}))out.deleted[key]=Math.max(out.deleted[key]||0,t);
- for(const [key,r] of Object.entries(remote.records||{})){
-  const existing=out.records[key];
-  if(["root","inbox","archive"].includes(key)){out.records[key]=copy(r);continue}
-  if(!existing){out.records[key]=copy(r);continue}
-  const current=fingerprint(existing),incoming=fingerprint(r),previous=old[key];
-  if(current===incoming)continue;
-  if(previous&&current===previous){out.records[key]=copy(r);continue}
-  if(previous&&incoming===previous)continue;
-  // Converge on the same winning version on every device, but keep the
-  // losing version as a named note or lecture. Nothing is silently discarded.
-  const winner=current>incoming?existing:r,loser=current>incoming?r:existing;
-  const loserFingerprint=current>incoming?incoming:current;
-  const conflictId="conflict_"+key+"_"+loserFingerprint;
-  out.records[key]=copy(winner);
-  if(!out.records[conflictId]){
-   const duplicate=copy(loser);
-   duplicate.id=conflictId;
-   duplicate.title=(loser.title||"Untitled")+" (conflict copy)";
-   duplicate.updated=now();
-   out.records[conflictId]=duplicate;
+function checkpoint(state,revision){
+ const next={revision,records:Object.fromEntries([...new Set([...Object.keys(state.records),...Object.keys(state.deleted)])].map(key=>[key,signature(state,key)]))};
+ localStorage.setItem(DATA+".checkpoint",JSON.stringify(next));baseline=next;
+}
+function conflictCopy(out,record){
+ if(!record||protectedIds.has(record.id))return;
+ const key="conflict_"+record.id+"_"+fingerprint(record);
+ if(!out.records[key])out.records[key]={...copy(record),id:key,title:(record.title||"Untitled")+" (conflict copy)"};
+}
+function mergeStates(local,remote,previous=baseline?.records||{}){
+ const out={version:1,records:{},deleted:{}};
+ const keys=new Set([...Object.keys(local.records),...Object.keys(remote.records),...Object.keys(local.deleted),...Object.keys(remote.deleted)]);
+ for(const key of [...keys].sort()){
+  if(protectedIds.has(key)){out.records[key]=copy(remote.records[key]||local.records[key]||base().records[key]);continue}
+  const a=signature(local,key),b=signature(remote,key),old=previous[key]??null;
+  let chosen;
+  if(a===b)chosen=local;
+  else if(a===old)chosen=remote;
+  else if(b===old)chosen=local;
+  else if(a===null)chosen=remote;
+  else if(b===null)chosen=local;
+  else {
+   const la=live(local,key),lb=live(remote,key);
+   if(!la||!lb){chosen=!la?local:remote;conflictCopy(out,la||lb)}
+   else{chosen=a>b?local:remote;conflictCopy(out,a>b?lb:la)}
   }
+  const record=live(chosen,key);
+  if(record)out.records[key]=copy(record);
+  else if(chosen.deleted[key])out.deleted[key]=chosen.deleted[key];
  }
- for(const [key,t] of Object.entries(out.deleted)){if(out.records[key]&&Number(out.records[key].updated||0)<=Number(t))delete out.records[key]}
+ // Concurrent valid moves can together create a cycle. Keep every item reachable.
+ for(const key of Object.keys(out.records).sort()){
+  if(protectedIds.has(key))continue;
+  const n=out.records[key],seen=new Set([key]);let p=n.parent;
+  while(p&&!protectedIds.has(p)&&out.records[p]&&!seen.has(p)){seen.add(p);p=out.records[p].parent}
+  if(!p||!out.records[p]||seen.has(p))n.parent=n.kind==="section"?"root":"inbox";
+ }
  return out;
 }
 function saveMerged(merged){
- if(JSON.stringify(merged)===JSON.stringify(db))return;
- db=merged;localStorage.setItem(DATA,JSON.stringify(db));
+ if(stable(merged)===stable(db))return;
+ // Persist before exposing an incoming update: failed disk writes cannot look saved.
+ localStorage.setItem(DATA,JSON.stringify(merged));db=merged;
  window.dispatchEvent(new Event("lumen-remote-updated"));
 }
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-function queueSync(delay=900){pending=true;dirtyVersion++;clearTimeout(syncTimer);if(!credentials())return;status("pending","Saved locally · syncing soon");syncTimer=setTimeout(()=>sync(),delay)}
+function preserveEditorVersion(key,edit={}){
+ const n=requireNode(key),opened=openedVersions.get(key);
+ if((edit.expectedBody!==undefined&&n.body!==edit.expectedBody&&n.body!==edit.body)||(opened&&opened!==fingerprint(n)))conflictCopy(db,n);
+ openedVersions.delete(key);return n;
+}
+function undo(){
+ const last=history[history.length-1];if(!last)throw Error("Nothing to undo");
+ if(!last.changed)throw Error("This earlier action cannot be undone safely after the sync upgrade. Your library has not changed.");
+ const current=copy(db),restored=copy(db),oldHistory=copy(history);
+ try{
+  for(const key of last.changed){
+   if(protectedIds.has(key))continue;
+   if(signature(current,key)!==last.after[key])conflictCopy(restored,live(current,key));
+   const previous=last.db.records[key];
+   if(previous){restored.records[key]=copy(previous);restored.records[key].updated=Math.max(now(),Number(current.records[key]?.updated||0)+1,Number(current.deleted[key]||0)+1);delete restored.deleted[key]}
+   else{delete restored.records[key];restored.deleted[key]=Math.max(now(),Number(current.records[key]?.updated||0)+1,Number(current.deleted[key]||0)+1)}
+  }
+  db=restored;history.pop();save();localStorage.setItem(HISTORY,JSON.stringify(history));return {undone:last.message};
+ }catch(e){db=current;history=oldHistory;throw e}
+}
+function queueSync(delay=650){
+ pending=true;dirtyVersion++;clearTimeout(syncTimer);
+ if(!HOSTED)return;
+ status(navigator.onLine?"pending":"offline",navigator.onLine?"Saved on this device · syncing…":"Saved on this device · waiting for internet");
+ syncTimer=setTimeout(()=>sync(),delay);
+}
+async function fetchSync(options={}){
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);
+ try{return await realFetch("/api/sync",{credentials:"same-origin",cache:"no-store",redirect:"error",...options,signal:controller.signal})}
+ finally{clearTimeout(timeout)}
+}
+function switchAccount(next){
+ const changed=owner!==next.id;
+ if(changed){
+  owner=next.id;localStorage.setItem(OWNER_KEY,JSON.stringify(owner));DATA=PREFIX+owner;HISTORY=DATA+".history";
+  db=load(DATA,base());history=load(HISTORY,[]);baseline=load(DATA+".checkpoint",null);openedVersions.clear();dirtyVersion++;pending=false;
+  window.dispatchEvent(new Event("lumen-remote-updated"));
+ }
+ user=next;verified=true;resolveReady(copy(next));
+ if(changed)window.dispatchEvent(new Event("lumen-account-ready"));
+ return changed;
+}
 async function sync(){
- if(!credentials()){status("disconnected",cfg?"Unlock sync in Settings":"Connect GitHub in Settings");return false}
+ if(!HOSTED){status("disconnected","Open the synced Lumen app to connect your devices");return false}
  if(!navigator.onLine){status("offline","Saved on this device · waiting for internet");return false}
  if(busy){pending=true;return false}
- busy=true;clearTimeout(syncTimer);status("syncing","Syncing with GitHub…");
- let ok=false,changedDuring=false;
+ busy=true;clearTimeout(syncTimer);status("syncing","Syncing your library…");let ok=false,authRequired=false;
  try{
   for(let attempt=0;attempt<5;attempt++){
-   const response=await realFetch(endpoint(),{headers:headers(),cache:"no-store"});
-   if(!response.ok&&response.status!==404)throw Error("GitHub download failed (HTTP "+response.status+")");
-   const file=response.status===404?null:await response.json();
-   if(file&&(!file.content||file.size>950000))throw Error("GitHub vault is too large for one sync file. Export a backup.");
-   let remote=file?await decrypt(JSON.parse(decode64(file.content)),passphrase):base();
-   if(!remote||typeof remote.records!=="object")throw Error("Unsupported GitHub vault format");
-   const merged=mergeStates(db,remote);
-   saveMerged(merged);
-   const sent=copy(db),writeAtVersion=dirtyVersion;
-   if(file&&JSON.stringify(remote)===JSON.stringify(sent)){
-    persistBaseline(sent);changedDuring=dirtyVersion!==writeAtVersion;ok=true;break;
-   }
-   const upload=await encrypt(sent,passphrase);
-   const put=await realFetch(endpoint(),{method:"PUT",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify({message:"Sync Lumen encrypted vault",content:encode64(JSON.stringify(upload)),...(file?{sha:file.sha}:{})})});
-   if(put.status===409||put.status===422){await sleep(240+Math.random()*300);continue}
-   if(!put.ok)throw Error("GitHub upload failed (HTTP "+put.status+")");
-   persistBaseline(sent);changedDuring=dirtyVersion!==writeAtVersion;ok=true;break;
+   const response=await fetchSync();
+   if(response.status===401){verified=false;user=null;authRequired=true;throw Error("Sign in to resume automatic sync. Your changes are saved on this device.")}
+   if(!response.ok)throw Error("Sync is temporarily unavailable. Your changes are saved on this device.");
+   const incoming=await response.json();
+   if(!incoming.user?.id||!Number.isSafeInteger(incoming.revision)||incoming.revision<0)throw Error("Could not verify your sync account. Your changes remain on this device.");
+   const changed=switchAccount(incoming.user),remote=incoming.state||base();
+   if(!remote.records||!remote.deleted)throw Error("The cloud library could not be read. Your local library is safe.");
+   if(changed&&load(DATA,null)===null&&incoming.state){db=copy(remote);localStorage.setItem(DATA,JSON.stringify(db));window.dispatchEvent(new Event("lumen-remote-updated"))}
+   saveMerged(mergeStates(db,remote));
+   const sent=copy(db),writeAt=dirtyVersion;
+   if(incoming.state&&stable(sent)===stable(remote)){checkpoint(sent,incoming.revision);pending=dirtyVersion!==writeAt;ok=true;break}
+   const put=await fetchSync({method:"PUT",headers:{"Content-Type":"application/json","X-Lumen-User":user.id},body:JSON.stringify({userId:user.id,baseRevision:incoming.revision,state:sent})});
+   if(put.status===409)continue;
+   if(put.status===401||put.status===403){verified=false;user=null;authRequired=true;throw Error("Your sign-in changed. Reload Lumen before syncing. Your changes are saved on this device.")}
+   if(!put.ok){let detail="";try{detail=(await put.json()).detail||""}catch{}throw Error(detail||"Could not upload changes. They are saved on this device and will retry automatically.")}
+   const receipt=await put.json();if(!Number.isSafeInteger(receipt.revision))throw Error("Sync confirmation was interrupted. Lumen will check again.");
+   checkpoint(sent,receipt.revision);pending=dirtyVersion!==writeAt;ok=true;break;
   }
-  if(!ok)throw Error("Too many simultaneous updates. Lumen will retry.");
-  pending=changedDuring;
-  lastSuccess=now();status("synced","Synced · "+new Date().toLocaleTimeString());
-  return true;
+  if(!ok)throw Error("Other devices are updating your library. Retrying shortly…");
+  retryCount=0;lastSuccess=now();status(pending?"pending":"synced",pending?"More changes saved on this device · syncing…":"All changes synced · "+new Date().toLocaleTimeString());return true;
  }catch(e){
-  status("error",e.message||"Couldn't synchronize. Your changes remain saved here.");
-  pending=true;return false;
+  pending=true;status(authRequired?"disconnected":navigator.onLine?"error":"offline",e.name==="AbortError"?"Connection timed out. Your changes are saved on this device and will retry.":e.message||"Saved on this device · reconnecting…");return false;
  }finally{
   busy=false;
-  if(pending&&ok)syncTimer=setTimeout(()=>sync(),600);
+  if(pending&&!authRequired){const delay=ok?250:Math.min(60000,1000*2**Math.min(retryCount++,6));syncTimer=setTimeout(()=>sync(),delay)}
  }
 }
 window.addEventListener("online",()=>sync());
+window.addEventListener("offline",()=>status("offline","Saved on this device · waiting for internet"));
 window.addEventListener("focus",()=>sync());
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)sync()});
 window.addEventListener("storage",ev=>{
- if(ev.key===DATA&&ev.newValue){try{const incoming=JSON.parse(ev.newValue);if(incoming?.records){const merged=mergeStates(db,incoming);if(JSON.stringify(merged)!==JSON.stringify(db)){db=merged;if(JSON.stringify(merged)!==JSON.stringify(incoming))localStorage.setItem(DATA,JSON.stringify(merged));window.dispatchEvent(new Event("lumen-remote-updated"));queueSync(500)}}}catch(e){console.warn("Could not reconcile Lumen browser tabs",e)}}
+ if(ev.key===OWNER_KEY&&HOSTED&&ev.newValue!==JSON.stringify(owner)){verified=false;user=null;status("disconnected","Account changed in another tab. Reload Lumen to continue.");return}
+ if(ev.key===DATA&&ev.newValue){try{const incoming=JSON.parse(ev.newValue);if(incoming?.records){const merged=mergeStates(db,incoming);if(stable(merged)!==stable(db)){saveMerged(merged);queueSync(350)}}}catch(e){console.warn("Could not reconcile Lumen browser tabs",e)}}
 });
-setInterval(()=>{if(!document.hidden&&credentials())sync()},15000);
+setInterval(()=>{if(!document.hidden&&HOSTED)sync()},5000);
 
 const st=document.createElement("style");
-st.textContent=".lumen-settings-btn{position:relative;flex-shrink:0}.lumen-sync-dot{position:absolute;bottom:0;right:0;width:6px;height:6px;border-radius:50%;background:#9b9b9b;box-shadow:0 0 0 2px var(--bg,#111)}.lumen-settings-btn[data-sync=synced] .lumen-sync-dot{background:#6dbb92}.lumen-settings-btn[data-sync=pending] .lumen-sync-dot,.lumen-settings-btn[data-sync=syncing] .lumen-sync-dot{background:#e6b45b}.lumen-settings-btn[data-sync=error] .lumen-sync-dot{background:#ec8080}.lumen-settings-btn[data-sync=offline] .lumen-sync-dot{background:#98a4b7}#lumen-cloud-modal{position:fixed;inset:0;z-index:9001;background:#000b;display:grid;place-items:center;padding:15px}#lumen-cloud-modal .panel{box-sizing:border-box;width:min(520px,100%);max-height:95vh;overflow:auto;background:#1e2028;color:#f1f1f1;border:1px solid #535563;border-radius:18px;padding:22px;font:14px/1.6 system-ui}#lumen-cloud-modal label{display:block;margin-top:10px}#lumen-cloud-modal input:not([type=checkbox]){box-sizing:border-box;display:block;width:100%;margin:4px 0 12px;background:#101219;border:1px solid #515768;border-radius:8px;color:white;padding:10px;font:inherit}#lumen-cloud-modal input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin-right:7px;accent-color:#9cbefb}#lumen-cloud-modal button{background:#a4c5ff;color:#161923;border:0;padding:9px 13px;border-radius:9px;margin-right:6px;margin-bottom:8px;cursor:pointer;font:inherit}#lumen-cloud-modal button.secondary{background:#373d4c;color:#f1f1f1}#lumen-cloud-modal a{color:#a4c5ff}#lumen-sync-status-detail[data-sync=error]{color:#ffc0ae}#lumen-sync-status-detail[data-sync=synced]{color:#a4dfb8}#lumen-cloud-modal .small{font-size:12px;color:#b6bac7}";
+st.textContent=".lumen-settings-btn{position:relative;flex-shrink:0}.lumen-sync-dot{position:absolute;bottom:0;right:0;width:6px;height:6px;border-radius:50%;background:#9b9b9b;box-shadow:0 0 0 2px var(--bg,#111)}.lumen-settings-btn[data-sync=synced] .lumen-sync-dot{background:#6dbb92}.lumen-settings-btn[data-sync=pending] .lumen-sync-dot,.lumen-settings-btn[data-sync=syncing] .lumen-sync-dot{background:#e6b45b}.lumen-settings-btn[data-sync=error] .lumen-sync-dot{background:#ec8080}#lumen-cloud-modal{position:fixed;inset:0;z-index:9001;background:#000b;display:grid;place-items:center;padding:15px}#lumen-cloud-modal .panel{box-sizing:border-box;width:min(520px,100%);max-height:95vh;overflow:auto;background:var(--panel,#1e2028);color:var(--ink,#f1f1f1);border:1px solid var(--line,#535563);border-radius:18px;padding:22px;font:14px/1.6 system-ui}#lumen-cloud-modal button,#lumen-cloud-modal a.action{display:inline-block;background:#a4c5ff;color:#161923;border:0;padding:9px 13px;border-radius:9px;margin:0 6px 8px 0;cursor:pointer;font:inherit;text-decoration:none}#lumen-cloud-modal button.secondary{background:#373d4c;color:#f1f1f1}#lumen-sync-status-detail[data-sync=error]{color:#e78871}#lumen-sync-status-detail[data-sync=synced]{color:#6dbb92}#lumen-cloud-modal .small{font-size:12px;color:var(--muted,#b6bac7)}";
 document.head.append(st);
+function downloadBackup(){
+ const link=document.createElement("a"),blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"});
+ link.href=URL.createObjectURL(blob);link.download="lumen-backup-"+new Date().toISOString().slice(0,10)+".json";link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+}
+function validateImport(data){
+ const object=v=>v&&typeof v==="object"&&!Array.isArray(v),validTime=v=>typeof v==="number"&&Number.isFinite(v)&&v>=0,validId=k=>/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(k);
+ const safe=(v,depth=0)=>{if(depth>64)throw Error("This backup contains too many nested fields");if(v&&typeof v==="object")for(const [key,value] of Object.entries(v)){if(["__proto__","constructor","prototype"].includes(key))throw Error("This backup contains an unsupported field");safe(value,depth+1)}};
+ if(!object(data)||data.version!==1||!object(data.records)||!object(data.deleted)||Object.keys(data).some(k=>!["version","records","deleted"].includes(k)))throw Error("Unsupported backup");
+ safe(data);
+ if(Object.keys(data.records).length>50000||Object.keys(data.deleted).length>50000)throw Error("This backup has too many items");
+ for(const [key,t] of Object.entries(data.deleted))if(!validId(key)||protectedIds.has(key)||!validTime(t))throw Error("This backup contains an invalid deleted item");
+ for(const [key,n] of Object.entries(data.records)){
+  if(!validId(key)||!object(n)||n.id!==key||!["root","inbox","archive","section","module","note","lecture"].includes(n.kind)||typeof n.title!=="string"||n.title.length>4096||!validTime(n.created)||!validTime(n.updated))throw Error("This backup contains an invalid item");
+  if(protectedIds.has(key)?n.kind!==key||n.parent!==null:protectedIds.has(n.kind)||typeof n.parent!=="string"||!validId(n.parent))throw Error("This backup contains an invalid folder");
+ }
+ for(const key of protectedIds)if(!live(data,key))throw Error("This backup is missing a required library folder");
+ for(const key of Object.keys(data.records)){
+  if(protectedIds.has(key)||!live(data,key))continue;
+  const seen=new Set();let n=live(data,key);
+  while(n&&!protectedIds.has(n.id)){if(seen.has(n.id)||seen.size>=256)throw Error("This backup contains a folder cycle");seen.add(n.id);const p=live(data,n.parent);if(!p||!["root","inbox","archive","section","module"].includes(p.kind))throw Error("This backup contains an invalid parent folder");n=p}
+ }
+ if(new TextEncoder().encode(JSON.stringify(data)).byteLength>8*1024*1024)throw Error("This backup exceeds the 8 MiB automatic sync limit");
+}
+function importData(data){
+ if(HOSTED&&(!verified||!user))throw Error("Connect your account before importing your library.");
+ validateImport(data);
+ return mod("Import backup",()=>{db=mergeStates(db,data,{});window.dispatchEvent(new Event("lumen-remote-updated"));return true});
+}
 function settings(){
- document.querySelector("#lumen-cloud-modal")?.remove();
- const connected=credentials();
- const modal=document.createElement("div");
- modal.id="lumen-cloud-modal";
- modal.innerHTML='<div class="panel" role="dialog" aria-modal="true" aria-label="Lumen settings">'
- +'<h2>Settings</h2><p id="lumen-sync-status-detail" role="status"></p>'
- +(connected?'<p>Automatic sync is active for <strong>'+escap(cfg.owner+"/"+cfg.repo)+'</strong>. Changes sync while Lumen is open.</p>':'<p>Connect once on each device. Lumen saves changes instantly and synchronizes your encrypted notes automatically while open.</p>')
- +'<form id="lumen-cloud-form">'
- +'<label>GitHub username<input name="owner" required autocomplete="username" value="'+escap(cfg?.owner||"")+'" placeholder="your-username"></label>'
- +'<label>Private data repository<input name="repo" required value="'+escap(cfg?.repo||"")+'" placeholder="lumen-private-data"></label>'
- +'<label>Repository token<input type="password" name="token" autocomplete="off" placeholder="github_pat_…" '+(connected?'':'required')+'></label>'
- +'<label>Encryption password<input type="password" name="pass" autocomplete="off" minlength="12" placeholder="Your encryption password" '+(connected?'':'required')+'></label>'
- +'<label><input type="checkbox" name="remember" '+(Boolean(load(AUTH_KEY,null))||!connected?'checked':'')+'> Stay connected on this device</label>'
- +'<p class="small">On a personal device, this keeps your token and encryption password in the browser so sync resumes after closing it. Uncheck on shared devices. Never enter secrets into chat or your code repository.</p>'
- +'<button type="submit">Connect</button><button type="button" class="secondary" id="lumen-close">Close</button>'
- +'<button type="button" class="secondary" id="lumen-sync-now">Sync now</button>'
- +'<button type="button" class="secondary" id="lumen-disconnect">Disconnect</button>'
- +'<button type="button" class="secondary" id="lumen-export">Export backup</button>'
- +'<button type="button" class="secondary" id="lumen-import">Import backup</button>'
- +'<input type="file" id="lumen-import-file" accept=".json" hidden>'
- +'</form><p class="small">Use a fine-grained token restricted to a private data repository with Contents read/write access. '
- +'<a href="https://github.com/new" rel="noopener" target="_blank">Create a data repository</a> · '
- +'<a href="https://github.com/settings/personal-access-tokens/new" rel="noopener" target="_blank">Create token</a></p>'
- +'<p id="lumen-form-error" role="alert" style="color:#ffc0ae"></p></div>';
+ document.querySelector("#lumen-cloud-modal")?.remove();const modal=document.createElement("div");modal.id="lumen-cloud-modal";
+ const returnTo=encodeURIComponent(location.pathname+location.search+(location.hash||"#/"));
+ const account=HOSTED?(user?'<p>Signed in as <strong>'+escap(user.email||"your account")+'</strong>. Open Lumen with this same account on your other devices.</p>':'<p>Sign in to keep your library available across devices.</p><a class="action" target="_top" href="/signin-with-chatgpt?return_to='+returnTo+'">Sign in</a>'):'<p>Your existing library is saved in this browser. Open the synced Lumen app to use it on every device.</p>'+(window.LUMEN_SYNC_URL?'<a class="action" href="'+escap(window.LUMEN_SYNC_URL)+'" target="_top">Open synced Lumen</a>':"");
+ modal.innerHTML='<div class="panel" role="dialog" aria-modal="true" aria-label="Lumen settings"><h2>Your library</h2><p id="lumen-sync-status-detail" role="status"></p>'+account+'<p class="small">Changes save on this device immediately. Automatic sync runs while Lumen is open, and resumes when you reconnect. Keep a backup of important work.</p><button id="lumen-close">Close</button><button class="secondary" id="lumen-export">Export backup</button><button class="secondary" id="lumen-import">Import backup</button><input type="file" id="lumen-import-file" accept=".json" hidden>'+(HOSTED&&user?'<button class="secondary" id="lumen-signout">Sign out on this device</button>':"")+'<p id="lumen-form-error" role="alert"></p></div>';
  document.body.append(modal);updateIndicator();
  modal.querySelector("#lumen-close").onclick=()=>modal.remove();
- modal.querySelector("#lumen-sync-now").onclick=async()=>{if(!credentials())return modal.querySelector("#lumen-form-error").textContent="Connect a token first.";await sync();updateIndicator()};
- modal.querySelector("#lumen-disconnect").onclick=()=>{
-  token="";passphrase="";auth=null;localStorage.removeItem(AUTH_KEY);sessionStorage.removeItem(SESSION_KEY);
-  status("disconnected","Disconnected · your notes remain on this device");modal.remove();settings();
- };
- modal.querySelector("#lumen-export").onclick=()=>{
-  const link=document.createElement("a"),blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"});
-  link.href=URL.createObjectURL(blob);link.download="lumen-backup-"+new Date().toISOString().slice(0,10)+".json";link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000)
- };
+ modal.querySelector("#lumen-export").onclick=downloadBackup;
  modal.querySelector("#lumen-import").onclick=()=>modal.querySelector("#lumen-import-file").click();
- modal.querySelector("#lumen-import-file").onchange=async e=>{
-  const message=modal.querySelector("#lumen-form-error");
-  try{
-   const file=e.target.files?.[0];if(!file)return;
-   const data=JSON.parse(await file.text());if(!data.records||!data.deleted)throw Error("Unsupported backup");
-   if(confirm("Merge these notes into your Lumen library?")){
-    snapshot("Import backup");db=mergeStates(db,data);save();window.dispatchEvent(new Event("lumen-remote-updated"));message.textContent="Backup imported. It will sync automatically."
-   }
-  }catch(err){message.textContent=err.message}
+ modal.querySelector("#lumen-import-file").onchange=async e=>{const line=modal.querySelector("#lumen-form-error");try{const file=e.target.files?.[0];if(!file)return;importData(JSON.parse(await file.text()));line.textContent=HOSTED?"Backup imported. Syncing automatically…":"Backup imported on this device."}catch(err){line.textContent=err.message}};
+ const signout=modal.querySelector("#lumen-signout");if(signout)signout.onclick=async()=>{
+  const line=modal.querySelector("#lumen-form-error");signout.disabled=true;
+  if(!(await sync())){line.textContent="Reconnect before signing out so every change is saved to your account. You can export a separate backup here.";signout.disabled=false;return}
+  verified=false;user=null;localStorage.removeItem(DATA);localStorage.removeItem(HISTORY);localStorage.removeItem(DATA+".checkpoint");owner=null;localStorage.removeItem(OWNER_KEY);db=base();history=[];window.dispatchEvent(new Event("lumen-remote-updated"));location.href="/signout-with-chatgpt?return_to=%2F";
  };
- modal.querySelector("#lumen-cloud-form").onsubmit=async e=>{
-  e.preventDefault();
-  const form=e.currentTarget,button=form.querySelector('[type="submit"]'),message=modal.querySelector("#lumen-form-error"),data=new FormData(form);
-  const next={owner:String(data.get("owner")||"").trim(),repo:String(data.get("repo")||"").trim()};
-  const nextToken=String(data.get("token")||"").trim()||token,nextPass=String(data.get("pass")||"")||passphrase;
-  if(!validCfg(next))return message.textContent="Enter a valid GitHub username and repository name.";
-  if(!nextToken||nextPass.length<12)return message.textContent="Enter your GitHub token and an encryption password of at least 12 characters.";
-  button.disabled=true;message.textContent="Checking your private repository…";
-  try{
-   const h={Authorization:"Bearer "+nextToken,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"};
-   const root="https://api.github.com/repos/"+encodeURIComponent(next.owner)+"/"+encodeURIComponent(next.repo);
-   const check=await realFetch(root,{headers:h,cache:"no-store"});
-   if(!check.ok)throw Error("Repository access failed (HTTP "+check.status+"). Check your token and repository.");
-   const metadata=await check.json();
-   if(metadata.private!==true)throw Error("Your data repository must be private.");
-   const response=await realFetch(root+"/contents/lumen-vault.enc.json",{headers:h,cache:"no-store"});
-   if(!response.ok&&response.status!==404)throw Error("Cannot read the data repository (HTTP "+response.status+").");
-   if(response.ok){
-    const file=await response.json();
-    try{await decrypt(JSON.parse(decode64(file.content)),nextPass)}
-    catch{throw Error("That encryption password cannot unlock this vault. Your existing notes have not been changed.")}
-   }
-   const changed=!cfg||cfg.owner!==next.owner||cfg.repo!==next.repo;
-   cfg=next;token=nextToken;passphrase=nextPass;auth={...next,token,passphrase};
-   localStorage.setItem(CFG,JSON.stringify(cfg));
-   if(changed){baseline=null;localStorage.removeItem(BASELINE_KEY)}
-   if(data.get("remember")){localStorage.setItem(AUTH_KEY,JSON.stringify(auth));sessionStorage.removeItem(SESSION_KEY)}
-   else{sessionStorage.setItem(SESSION_KEY,JSON.stringify(auth));localStorage.removeItem(AUTH_KEY)}
-   status("pending","Connected · checking for updates");modal.remove();
-   const connectedOK=await sync();
-   if(!connectedOK)settings();
-  }catch(err){message.textContent=err.message||String(err)}
-  finally{button.disabled=false}
- };
+ modal.addEventListener("click",e=>{if(e.target===modal)modal.remove()});
+ modal.addEventListener("keydown",e=>{if(e.key==="Escape")modal.remove()});
+ modal.querySelector("#lumen-close").focus?.();
 }
-window.LumenCloud={settings,sync,exportData:()=>copy(db),updateIndicator};
-if(credentials()){status("pending","Connected · fetching latest changes");setTimeout(sync,450)}
-else status("disconnected",cfg?"Open Settings to unlock sync":"Open Settings to connect GitHub");
+window.LumenCloud={whenReady,getUser:()=>verified?copy(user):null,get activeAccountId(){return owner},settings,sync,exportData:()=>copy(db),importData,downloadBackup,updateIndicator,get account(){return verified?copy(user):null},get state(){return {status:lastSyncState,message:lastSyncMessage,pending,lastSuccess}}};
+if(HOSTED){status("pending","Connecting your library…");setTimeout(sync,0)}else status("disconnected","Saved on this device · open synced Lumen for automatic sync");
 })();
