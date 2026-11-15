@@ -169,14 +169,93 @@ window.addEventListener("storage",ev=>{
  if(ev.key===DATA&&ev.newValue){try{const incoming=JSON.parse(ev.newValue);if(incoming?.records){const merged=mergeStates(db,incoming);if(JSON.stringify(merged)!==JSON.stringify(db)){db=merged;window.dispatchEvent(new Event("lumen-remote-updated"));queueSync(500)}}}catch(e){console.warn("Could not reconcile Lumen browser tabs",e)}}
 });
 setInterval(()=>{if(!document.hidden&&credentials())sync()},15000);
-const st=document.createElement("style");st.textContent=`#lumen-sync-bar{position:fixed;bottom:12px;right:15px;z-index:9000;display:flex;align-items:center;gap:10px;padding:8px 12px;background:#20212a;color:#eee;border:1px solid #454654;border-radius:12px;box-shadow:0 8px 30px #0005;font:12px system-ui}#lumen-sync-bar button{color:#b8d3ff;border:1px solid #576276;border-radius:7px;padding:5px 8px;cursor:pointer}#lumen-cloud-modal{position:fixed;inset:0;z-index:9001;background:#000b;display:grid;place-items:center;padding:15px}#lumen-cloud-modal .panel{width:min(500px,100%);max-height:95vh;overflow:auto;background:#1e2028;color:#f1f1f1;border:1px solid #535563;border-radius:18px;padding:22px;font:14px/1.6 system-ui}#lumen-cloud-modal input{display:block;width:100%;margin:4px 0 12px;background:#101219;border:1px solid #515768;border-radius:8px;color:white;padding:10px}#lumen-cloud-modal button{background:#a4c5ff;color:#161923;padding:9px 13px;border-radius:9px;margin-right:6px;margin-bottom:8px;cursor:pointer}#lumen-cloud-modal a{color:#a4c5ff}`;document.head.append(st);
-function settings(){document.querySelector("#lumen-cloud-modal")?.remove();let modal=document.createElement("div");modal.id="lumen-cloud-modal";modal.innerHTML=`<div class="panel"><h2>Lumen sync</h2><p>Your notes are saved in this browser immediately. To sync across devices, create a <b>separate private GitHub repository</b> and a fine-grained access token restricted to that repository with <b>Contents: Read and write</b>. The app encrypts your data before uploading.</p><p><a href="https://github.com/new" target="_blank" rel="noopener">Create private repository</a> · <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create token</a></p><form id="lumen-cloud-form"><label>GitHub account/owner<input name="owner" required placeholder="github-username" value="${escap(cfg?.owner||"")}"></label><label>Private data repository name<input name="repo" required placeholder="lumen-private-data" value="${escap(cfg?.repo||"")}"></label><label>Fine-grained access token<input type="password" name="token" required autocomplete="off" placeholder="github_pat_…"></label><label>Encryption password (choose a strong, unique phrase)<input type="password" name="pass" required minlength="12" autocomplete="off" placeholder="At least 12 characters"></label><p style="font-size:12px;opacity:.85">Keep both secrets safe. The encryption password cannot be recovered. Secrets stay only in memory until this tab is closed, so you will re-enter them when opening the site on a new session. Never paste them into chat or commit them to your code.</p><button type="submit">Connect and sync</button><button type="button" id="lumen-close">Close</button><button type="button" id="lumen-export">Export backup</button><button type="button" id="lumen-import">Import backup</button><input type="file" id="lumen-import-file" accept=".json" hidden></form><p id="lumen-form-error" role="alert"></p></div>`;document.body.append(modal);
-modal.querySelector("#lumen-close").onclick=()=>modal.remove();modal.querySelector("#lumen-export").onclick=()=>{let a=document.createElement("a"),blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"});a.href=URL.createObjectURL(blob);a.download="lumen-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
-modal.querySelector("#lumen-import").onclick=()=>modal.querySelector("#lumen-import-file").click();modal.querySelector("#lumen-import-file").onchange=async e=>{try{let data=JSON.parse(await e.target.files[0].text());if(!data.records||!data.deleted)throw Error("Unsupported backup");if(confirm("Merge this backup into your existing notes?")){snapshot("Import backup");db=merge(db,data);save();location.reload()}}catch(err){modal.querySelector("#lumen-form-error").textContent=err.message}};
-modal.querySelector("form").onsubmit=async e=>{e.preventDefault();let f=new FormData(e.currentTarget);cfg={owner:String(f.get("owner")).trim(),repo:String(f.get("repo")).trim()};token=String(f.get("token")).trim();passphrase=String(f.get("pass"));localStorage.setItem(CFG,JSON.stringify(cfg));sessionStorage.setItem("lumen.cloud.session",JSON.stringify({token,passphrase}));modal.querySelector("#lumen-form-error").textContent="Connecting…";try{let r=await realFetch(endpoint(),{headers:headers()});if(!r.ok&&r.status!==404)throw Error("Cannot access repository ("+r.status+"). Check owner, token and Contents permission.");if(r.ok){const file=await r.json();await decrypt(JSON.parse(decode64(file.content)),passphrase)}modal.remove();await sync();if(!lastError)window.dispatchEvent(new Event("hashchange"))}catch(err){token="";passphrase="";sessionStorage.removeItem("lumen.cloud.session");modal.querySelector("#lumen-form-error").textContent=err.message==="The operation failed for an operation-specific reason"?"Incorrect encryption password":err.message}};
+
+const st=document.createElement("style");
+st.textContent=".lumen-settings-btn{position:relative;flex-shrink:0}.lumen-sync-dot{position:absolute;bottom:0;right:0;width:6px;height:6px;border-radius:50%;background:#9b9b9b;box-shadow:0 0 0 2px var(--bg,#111)}.lumen-settings-btn[data-sync=synced] .lumen-sync-dot{background:#6dbb92}.lumen-settings-btn[data-sync=pending] .lumen-sync-dot,.lumen-settings-btn[data-sync=syncing] .lumen-sync-dot{background:#e6b45b}.lumen-settings-btn[data-sync=error] .lumen-sync-dot{background:#ec8080}.lumen-settings-btn[data-sync=offline] .lumen-sync-dot{background:#98a4b7}#lumen-cloud-modal{position:fixed;inset:0;z-index:9001;background:#000b;display:grid;place-items:center;padding:15px}#lumen-cloud-modal .panel{box-sizing:border-box;width:min(520px,100%);max-height:95vh;overflow:auto;background:#1e2028;color:#f1f1f1;border:1px solid #535563;border-radius:18px;padding:22px;font:14px/1.6 system-ui}#lumen-cloud-modal label{display:block;margin-top:10px}#lumen-cloud-modal input:not([type=checkbox]){box-sizing:border-box;display:block;width:100%;margin:4px 0 12px;background:#101219;border:1px solid #515768;border-radius:8px;color:white;padding:10px;font:inherit}#lumen-cloud-modal input[type=checkbox]{width:16px;height:16px;vertical-align:middle;margin-right:7px;accent-color:#9cbefb}#lumen-cloud-modal button{background:#a4c5ff;color:#161923;border:0;padding:9px 13px;border-radius:9px;margin-right:6px;margin-bottom:8px;cursor:pointer;font:inherit}#lumen-cloud-modal button.secondary{background:#373d4c;color:#f1f1f1}#lumen-cloud-modal a{color:#a4c5ff}#lumen-sync-status-detail[data-sync=error]{color:#ffc0ae}#lumen-sync-status-detail[data-sync=synced]{color:#a4dfb8}#lumen-cloud-modal .small{font-size:12px;color:#b6bac7}";
+document.head.append(st);
+function settings(){
+ document.querySelector("#lumen-cloud-modal")?.remove();
+ const connected=credentials();
+ const modal=document.createElement("div");
+ modal.id="lumen-cloud-modal";
+ modal.innerHTML='<div class="panel" role="dialog" aria-modal="true" aria-label="Lumen settings">'
+ +'<h2>Settings</h2><p id="lumen-sync-status-detail" role="status"></p>'
+ +(connected?'<p>Automatic sync is active for <strong>'+escap(cfg.owner+"/"+cfg.repo)+'</strong>. Changes sync while Lumen is open.</p>':'<p>Connect once on each device. Lumen saves changes instantly and synchronizes your encrypted notes automatically while open.</p>')
+ +'<form id="lumen-cloud-form">'
+ +'<label>GitHub username<input name="owner" required autocomplete="username" value="'+escap(cfg?.owner||"")+'" placeholder="your-username"></label>'
+ +'<label>Private data repository<input name="repo" required value="'+escap(cfg?.repo||"")+'" placeholder="lumen-private-data"></label>'
+ +'<label>Repository token<input type="password" name="token" autocomplete="off" placeholder="github_pat_…" '+(connected?'':'required')+'></label>'
+ +'<label>Encryption password<input type="password" name="pass" autocomplete="off" minlength="12" placeholder="Your encryption password" '+(connected?'':'required')+'></label>'
+ +'<label><input type="checkbox" name="remember" '+(Boolean(load(AUTH_KEY,null))||!connected?'checked':'')+'> Stay connected on this device</label>'
+ +'<p class="small">On a personal device, this keeps your token and encryption password in the browser so sync resumes after closing it. Uncheck on shared devices. Never enter secrets into chat or your code repository.</p>'
+ +'<button type="submit">Connect</button><button type="button" class="secondary" id="lumen-close">Close</button>'
+ +'<button type="button" class="secondary" id="lumen-sync-now">Sync now</button>'
+ +'<button type="button" class="secondary" id="lumen-disconnect">Disconnect</button>'
+ +'<button type="button" class="secondary" id="lumen-export">Export backup</button>'
+ +'<button type="button" class="secondary" id="lumen-import">Import backup</button>'
+ +'<input type="file" id="lumen-import-file" accept=".json" hidden>'
+ +'</form><p class="small">Use a fine-grained token restricted to a private data repository with Contents read/write access. '
+ +'<a href="https://github.com/new" rel="noopener" target="_blank">Create a data repository</a> · '
+ +'<a href="https://github.com/settings/personal-access-tokens/new" rel="noopener" target="_blank">Create token</a></p>'
+ +'<p id="lumen-form-error" role="alert" style="color:#ffc0ae"></p></div>';
+ document.body.append(modal);updateIndicator();
+ modal.querySelector("#lumen-close").onclick=()=>modal.remove();
+ modal.querySelector("#lumen-sync-now").onclick=async()=>{if(!credentials())return modal.querySelector("#lumen-form-error").textContent="Connect a token first.";await sync();updateIndicator()};
+ modal.querySelector("#lumen-disconnect").onclick=()=>{
+  token="";passphrase="";auth=null;localStorage.removeItem(AUTH_KEY);sessionStorage.removeItem(SESSION_KEY);
+  status("disconnected","Disconnected · your notes remain on this device");modal.remove();settings();
+ };
+ modal.querySelector("#lumen-export").onclick=()=>{
+  const link=document.createElement("a"),blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"});
+  link.href=URL.createObjectURL(blob);link.download="lumen-backup-"+new Date().toISOString().slice(0,10)+".json";link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000)
+ };
+ modal.querySelector("#lumen-import").onclick=()=>modal.querySelector("#lumen-import-file").click();
+ modal.querySelector("#lumen-import-file").onchange=async e=>{
+  const message=modal.querySelector("#lumen-form-error");
+  try{
+   const file=e.target.files?.[0];if(!file)return;
+   const data=JSON.parse(await file.text());if(!data.records||!data.deleted)throw Error("Unsupported backup");
+   if(confirm("Merge these notes into your Lumen library?")){
+    snapshot("Import backup");db=mergeStates(db,data);save();window.dispatchEvent(new Event("lumen-remote-updated"));message.textContent="Backup imported. It will sync automatically."
+   }
+  }catch(err){message.textContent=err.message}
+ };
+ modal.querySelector("#lumen-cloud-form").onsubmit=async e=>{
+  e.preventDefault();
+  const form=e.currentTarget,button=form.querySelector('[type="submit"]'),message=modal.querySelector("#lumen-form-error"),data=new FormData(form);
+  const next={owner:String(data.get("owner")||"").trim(),repo:String(data.get("repo")||"").trim()};
+  const nextToken=String(data.get("token")||"").trim()||token,nextPass=String(data.get("pass")||"")||passphrase;
+  if(!validCfg(next))return message.textContent="Enter a valid GitHub username and repository name.";
+  if(!nextToken||nextPass.length<12)return message.textContent="Enter your GitHub token and an encryption password of at least 12 characters.";
+  button.disabled=true;message.textContent="Checking your private repository…";
+  try{
+   const h={Authorization:"Bearer "+nextToken,Accept:"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"};
+   const root="https://api.github.com/repos/"+encodeURIComponent(next.owner)+"/"+encodeURIComponent(next.repo);
+   const check=await realFetch(root,{headers:h,cache:"no-store"});
+   if(!check.ok)throw Error("Repository access failed (HTTP "+check.status+"). Check your token and repository.");
+   const metadata=await check.json();
+   if(metadata.private!==true)throw Error("Your data repository must be private.");
+   const response=await realFetch(root+"/contents/lumen-vault.enc.json",{headers:h,cache:"no-store"});
+   if(!response.ok&&response.status!==404)throw Error("Cannot read the data repository (HTTP "+response.status+").");
+   if(response.ok){
+    const file=await response.json();
+    try{await decrypt(JSON.parse(decode64(file.content)),nextPass)}
+    catch{throw Error("That encryption password cannot unlock this vault. Your existing notes have not been changed.")}
+   }
+   const changed=!cfg||cfg.owner!==next.owner||cfg.repo!==next.repo;
+   cfg=next;token=nextToken;passphrase=nextPass;auth={...next,token,passphrase};
+   localStorage.setItem(CFG,JSON.stringify(cfg));
+   if(changed){baseline=null;localStorage.removeItem(BASELINE_KEY)}
+   if(data.get("remember")){localStorage.setItem(AUTH_KEY,JSON.stringify(auth));sessionStorage.removeItem(SESSION_KEY)}
+   else{sessionStorage.setItem(SESSION_KEY,JSON.stringify(auth));localStorage.removeItem(AUTH_KEY)}
+   status("pending","Connected · checking for updates");modal.remove();
+   const connectedOK=await sync();
+   if(!connectedOK)settings();
+  }catch(err){message.textContent=err.message||String(err)}
+  finally{button.disabled=false}
+ };
 }
-const bar=document.createElement("div");bar.id="lumen-sync-bar";bar.innerHTML='<span id="lumen-sync-status">Saved on this device</span><button id="lumen-sync-now" aria-label="Sync now">↻</button><button id="lumen-sync-settings">Sync settings</button>';document.body.append(bar);
-bar.querySelector("#lumen-sync-settings").onclick=settings;bar.querySelector("#lumen-sync-now").onclick=()=>cfg&&token?sync():settings();
-window.LumenCloud={settings,sync,exportData:()=>copy(db)};
-if(!cfg)setTimeout(()=>status("Offline · set up sync"),0);else if(token&&passphrase){status("Connected · checking for updates");setTimeout(sync,800)}else status("Saved locally · unlock sync");
+window.LumenCloud={settings,sync,exportData:()=>copy(db),updateIndicator};
+if(credentials()){status("pending","Connected · fetching latest changes");setTimeout(sync,450)}
+else status("disconnected",cfg?"Open Settings to unlock sync":"Open Settings to connect GitHub");
 })();
