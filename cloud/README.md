@@ -10,30 +10,48 @@ automatically exchange the original on-disk vault.
 
 ## Configure encrypted automatic sync
 
-1. Open the Lumen web page and choose **Sync settings** at the bottom.
-2. Create a **new private GitHub repository**, e.g. `lumen-private-data`, with no starter files.
-   **Do not use this public Lumen code repository for your private knowledge data.**
-3. Create a **fine-grained GitHub personal access token** restricted to that private
-   data repository. Grant **Contents: Read and write** and no unrelated permissions.
-4. In Lumen enter your GitHub username, data repository name, token, and a
-   **unique encryption password of 12+ characters**.
-5. Open Lumen on another device and enter the same credentials. Each device
-   maintains an offline copy and syncs when connected, on edits, on focus, and
-   while the app is open. Sync is automatically resumed on reloading the **same
-   browser tab**; newly opened browser sessions must be unlocked again.
+1. Open Lumen and select the **small Settings gear beside the theme control**
+   at the bottom of the sidebar. There is no floating sync toolbar.
+2. Create a **separate private GitHub repository**, e.g. `lumen-private-data`,
+   with no starter files. Never store personal notes in the public app-code repo.
+3. Create a **fine-grained GitHub personal access token** limited to that private
+   repository with **Contents: Read and write** access.
+4. Enter your GitHub username, private data repository, access token, and a
+   separate **encryption password (12+ characters)**. Check **Stay connected
+   on this device** if this is your trusted computer or phone.
+5. Repeat this connection once on every other device.
 
-The app encrypts data with AES-256-GCM and a PBKDF2-SHA256-derived key before
-writing `lumen-vault.enc.json` to GitHub. It stores the token and passphrase in
-**sessionStorage only**, not in this repository. Be aware that a compromised browser
-session can access sessionStorage. Do not share credentials in chat.
+Once connected, Lumen saves changes locally immediately, pushes shortly after
+edits, polls GitHub approximately **every 15 seconds while an app tab is active**,
+and checks immediately after returning to the tab, regaining internet, or
+opening Lumen. No manual Sync click is required. The gear has a small status
+dot (green = synced, amber = syncing/pending, red = error).
 
-Updates use the GitHub Contents API with its SHA conflict check and re-read/retry
-when a concurrent write is rejected. Individual records merge by last-updated
-timestamp, which does **not** guarantee lossless merges of simultaneous edits to
-the same note. Make periodic local backups; watch for sync errors in the status bar.
+GitHub's Contents API cannot send real-time push notifications to a static
+website. Expect a delay of up to approximately 15 seconds for changes to appear
+on another active device, sometimes longer because of network delays,
+browser background throttling or API errors. Sync does not run while
+Lumen is completely closed.
 
-An encrypted GitHub file is **not a substitute for backups**. The app also saves
-a local copy in your browser, which may be cleared by browser privacy settings.
+With **Stay connected on this device**, the access token and encryption
+password are saved in the browser's local storage so subsequent visits sync
+without requesting them again. This is convenient but increases exposure if
+that browser/device is compromised or shared. On shared devices, uncheck it
+so credentials persist only in the current browser session. Use Settings →
+Disconnect to clear saved credentials on the current device. Never paste
+tokens or passwords into ChatGPT or GitHub source files.
+
+Lumen encrypts the vault with AES-256-GCM and PBKDF2-SHA256 before uploading
+`lumen-vault.enc.json`. Every update uses the GitHub file SHA as an optimistic
+concurrency guard, with retries on conflicts. Each device tracks record
+fingerprints from the last successful sync: if the *same record* was edited on
+two devices, it preserves a deterministic **(conflict copy)** rather than
+silently dropping an edit. Review and reconcile any such copies manually.
+The GitHub Contents API has file-size limitations, so periodically export
+backups (Settings → Export backup), especially for large lecture collections.
+
+Encrypted GitHub sync is not a substitute for backup. Local browser data
+can be cleared by site-data cleanup or browser privacy settings.
 
 ## Import your existing Mac knowledge vault
 
