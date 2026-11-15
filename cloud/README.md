@@ -71,3 +71,51 @@ Do not move tokens or vault content into `web/`, `cloud/`, or public git history
   connected GitHub access.
 - Synchronization requires an active authorized session and internet connection;
   it cannot run continuously when the browser is closed.
+
+## Panopto lecture importing
+
+Use **Lumen → a section or Inbox → Add lecture**.
+
+1. Copy the university Panopto Viewer link.
+2. In Panopto, use **Captions → Download transcript**, or export a timed
+   `.vtt`/`.srt` subtitle file if you have access to the caption files.
+3. In Lumen, paste the Panopto link, attach the caption file and optionally
+   the PDF lecture slides. Select **Structure lecture and save**.
+4. Open the lecture and choose **Review captions** to correct technical terms.
+   Saving corrections regenerates the extractive study-pack outline and
+   draft flashcards. Changes save offline immediately, then sync with GitHub
+   when your encrypted sync connection is active.
+
+Lumen accepts caption text instead of rerunning Whisper, and this avoids
+the browser/Python mismatch that previously blocked lecture uploading.
+**Panopto link-only access from GitHub Pages is not currently supported**
+because university videos and captions may require an authenticated,
+cross-origin Panopto session. **Do not put university account passwords
+or session cookies into Lumen's web form or GitHub repository.**
+
+### One-command link import on your Mac
+
+For compatible authorised Panopto recordings, a Mac helper can use the
+existing signed-in browser session and yt-dlp's Panopto extractor to retrieve
+captions from the URL directly:
+
+```bash
+uv run python tools/panopto_from_link.py "https://YOUR-UNIVERSITY.hosted.panopto.com/Panopto/Pages/Viewer.aspx?id=..." --browser chrome --slides "/path/to/slides.pdf"
+```
+
+The helper uses `uvx yt-dlp`, looks for existing subtitle tracks, and
+writes `lumen-panopto-import.json` for import through **Sync settings →
+Import backup**. It does not upload browser cookies to GitHub or use
+Whisper. If Panopto does not expose caption files to the extractor, the
+helper fails explicitly and you should use Panopto's Download transcript
+option and the website importer.
+
+**Current accuracy limitations:** Timed captions preserve their timestamps,
+but Panopto's common `.txt` transcript export may omit timestamps.
+Matching transcripts to slide pages is currently approximate. PDF text is
+extracted into the synced lecture record; the original PDF pages/images
+and lecture recordings are not uploaded to GitHub. Generated notes and
+flashcards are draft, extractive study aids: they are not reviewed by an AI,
+cannot automatically correct terminology and should be checked against the
+lecture. Edits to imported lectures can have conflicts if two devices edit
+the same record simultaneously; avoid simultaneous edits and keep backups.
