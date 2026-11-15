@@ -16,6 +16,23 @@
   --rain: rgba(233, 220, 255, .34);
   color-scheme: dark;
 }
+:root[data-theme="aurora"] {
+  --bg: #07141c; --panel: #0e202b; --side: rgba(7, 19, 27, .80);
+  --ink: #eafaf5; --ink-2: #c6e4dd; --muted: #8fb6ae;
+  --line: rgba(160, 235, 215, .12); --line-2: rgba(160, 235, 215, .22);
+  --hover: rgba(150, 235, 210, .07); --accent: #8ff0cf;
+  --accent-soft: rgba(120, 240, 200, .13); --mark: rgba(190, 160, 255, .24);
+  --ok: #9ee6c3; --warn: #ecd09c; --danger: #f2a6bd;
+  --shadow: 0 2px 8px rgba(2, 9, 14, .22), 0 18px 48px rgba(2, 9, 14, .34);
+  --glass: rgba(12, 31, 41, .62); --floating: #0d1f2a;
+  --sparkle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g'%3E%3Cstop offset='0' stop-color='%23f2fff9' stop-opacity='.75'/%3E%3Cstop offset='.3' stop-color='%23a8ffe0' stop-opacity='.22'/%3E%3Cstop offset='1' stop-color='%23a8ffe0' stop-opacity='0'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='22' fill='url(%23g)'/%3E%3Cpath d='M32 1C33 23 41 31 63 32C41 33 33 41 32 63C31 41 23 33 1 32C23 31 31 23 32 1Z' fill='%23f6fffb'/%3E%3C/svg%3E");
+  --rain: rgba(190, 255, 235, .32);
+}
+:root[data-theme="aurora"] .aura-space .aura-cloud {
+  background: radial-gradient(ellipse 60% 56% at 28% 62%, rgba(80, 240, 170, .22), rgba(80, 240, 170, 0) 84%),
+    radial-gradient(ellipse 60% 58% at 75% 34%, rgba(90, 170, 255, .22), rgba(90, 170, 255, 0) 86%),
+    radial-gradient(ellipse 43% 40% at 52% 30%, rgba(180, 120, 255, .20), rgba(180, 120, 255, 0) 88%);
+}
 :root[data-theme="sky"], :root[data-theme="light"] {
   --bg: #f3eef8; --panel: #fdfaff; --side: rgba(247, 242, 252, .74);
   --ink: #3a3054; --ink-2: #5b4f78; --muted: #7c7099;
@@ -471,6 +488,7 @@ body[data-scene="reading"] .lumen-atmosphere { opacity: .34; }
 .aura-flow { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
 .aura-gl .aura-flow { display: block; transition: opacity 1.2s ease; }
 body[data-stars="1"] .aura-flow { opacity: .58; }
+:root[data-theme="aurora"] body[data-stars="1"] .aura-flow { opacity: .82; }
 body[data-stars="1"] .aura-sparkles { opacity: .55; }
 /* Fallback when a device has no WebGL: still, soft gradients. */
 .aura-layer { position: absolute; inset: 0; opacity: 1; transition: opacity 1.2s ease; }
@@ -572,10 +590,10 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
 .universe-welcome .lumen-sigil { display: none; }
 @keyframes welcomeIn { from { opacity: 0; filter: blur(5px); transform: translate(-50%, 8px); } to { opacity: 1; filter: blur(0); transform: translate(-50%, 0); } }
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
-::view-transition-old(lumen-content) { animation: contentLeave .14s ease both; }
-::view-transition-new(lumen-content) { animation: contentArrive .34s var(--ease) both; }
-@keyframes contentLeave { to { opacity: 0; transform: translateY(-5px); } }
-@keyframes contentArrive { from { opacity: 0; transform: translateY(9px); } }
+::view-transition-old(lumen-content) { animation: contentLeave .18s ease both; }
+::view-transition-new(lumen-content) { animation: contentArrive .5s var(--ease) both; }
+@keyframes contentLeave { to { opacity: 0; } }
+@keyframes contentArrive { from { opacity: 0; transform: translateY(8px); } }
 :root[data-motion="calm"] *, :root[data-motion="calm"] *::before, :root[data-motion="calm"] *::after { animation: none !important; transition: none !important; }
 :root[data-motion="calm"]::view-transition-old(lumen-content), :root[data-motion="calm"]::view-transition-new(lumen-content) { animation: none; }
 @media (prefers-reduced-motion: reduce) {
@@ -791,3 +809,4 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
 :root[data-theme="sky"] .card .bar, :root[data-theme="light"] .card .bar { background: color-mix(in srgb, var(--c, transparent) 60%, var(--muted)); box-shadow: none; }
 /* Floating controls sit on the moving sky as frosted glass. */
 .graph-tools, .graph-panel, .universe-zoom, .u-continue, .signin-banner { -webkit-backdrop-filter: blur(18px) saturate(1.2); backdrop-filter: blur(18px) saturate(1.2); }
+

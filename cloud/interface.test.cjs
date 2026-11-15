@@ -172,3 +172,13 @@ test('prepared manual Q&A renders a keyboard-accessible answer reveal with escap
  app.context.qaRoot={querySelectorAll:selector=>selector==='pre > code.language-qa'?[{textContent:JSON.stringify({q:'What causes <change>?',a:'Compare groups.\n<script>unsafe</script>'}),parentElement:{replaceWith(node){rendered=node}}}]:[]};
  await app.run('enhance(qaRoot)');assert.equal(rendered.className,'practice-question');assert(rendered.innerHTML.includes('<summary>What causes &lt;change&gt;?'));assert(!rendered.innerHTML.includes('<script>'));
 });
+test('the atmosphere control cycles Space, Sky and Aurora and remembers Aurora', () => {
+  const app = interfaceApp();
+  app.run('setAtmosphere("aurora")');
+  assert.equal(app.document.documentElement.dataset.theme, 'aurora');
+  assert.equal(app.storage.get('lumen.theme'), '"aurora"');
+  assert.match(app.elements.get('theme').innerHTML, /Aurora/);
+  assert.match(app.elements.get('theme').getAttribute('aria-label'), /Switch to Space/);
+  app.run('setAtmosphere("sky")');
+  assert.match(app.elements.get('theme').getAttribute('aria-label'), /Switch to Aurora/);
+});

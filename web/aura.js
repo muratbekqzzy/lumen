@@ -23,6 +23,7 @@
 
   const media = matchMedia("(prefers-reduced-motion: reduce)");
   const isSky = () => root.dataset.theme === "sky" || root.dataset.theme === "light";
+  const isAurora = () => root.dataset.theme === "aurora";
   const isCalm = () => root.dataset.motion === "calm" || media.matches;
   const isReading = () => document.body.dataset.scene === "reading";
 
@@ -34,7 +35,7 @@ precision highp float;
 #else
 precision mediump float;
 #endif
-uniform vec2 uRes; uniform float uTime; uniform float uSky; uniform vec2 uPointer;
+uniform vec2 uRes; uniform float uTime; uniform float uSky; uniform float uAurora; uniform vec2 uPointer;
 float hash(vec2 p){ vec3 q = fract(vec3(p.xyx) * .1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
 float noise(vec2 p){
   vec2 i = floor(p), f = fract(p), u = f*f*f*(f*(f*6.-15.)+10.);
@@ -45,8 +46,30 @@ float fbm(vec2 p){
   for (int i = 0; i < 4; i++) { v += a*noise(p); p = mat2(1.6, 1.2, -1.2, 1.6)*p + 11.7; a *= .5; }
   return v;
 }
+// Northern lights: three curtains hang from the dark, each swaying, with fine rays and a bright lower hem.
+vec3 northern(vec2 uv, float aspect, float t, vec2 drift){
+  vec3 col = mix(vec3(.020,.060,.085), vec3(.022,.028,.085), smoothstep(0., .9, uv.y));
+  col += vec3(.020,.075,.070) * (1. - smoothstep(0., .45, uv.y));          // glow along the horizon
+  float x = uv.x * aspect + drift.x * .08;
+  for (int i = 0; i < 3; i++) {
+    float fi = float(i);
+    float sway = fbm(vec2(x*.8 + fi*4.1, t*.05 + fi*2.3));
+    float hang = fbm(vec2(x*(1.5 + fi*.5) + sway*2.2 + fi*7.3, t*.032 + fi));
+    float fold = pow(clamp(1. - abs(hang - .5)*2.6, 0., 1.), 1.6);
+    float base = .12 + .07*fi + .62*sway + .10*sin(x*2.3 + t*.07 + fi*2.);   // a wavy hem, never a flat line
+    float hem = smoothstep(base - .02, base + .07, uv.y);
+    float lift = 1. - smoothstep(base + .10, base + .70, uv.y);
+    float rays = .5 + .5*noise(vec2(x*24. + sway*10., t*.45 + fi*3.));
+    float h = clamp((uv.y - base) / .62, 0., 1.);
+    vec3 tint = mix(vec3(.28,1.,.60), vec3(.22,.78,.95), smoothstep(0., .42, h));
+    tint = mix(tint, vec3(.74,.42,.98), smoothstep(.38, .95, h));
+    col += tint * fold * hem * lift * (.4 + .6*rays) * (.95 - fi*.16);
+  }
+  return col;
+}
 void main(){
   vec2 uv = gl_FragCoord.xy / uRes;
+  if (uAurora > .998) { vec3 lights = northern(uv, uRes.x / uRes.y, uTime, uPointer); lights += (hash(gl_FragCoord.xy) - .5) * (2./255.); gl_FragColor = vec4(lights, 1.); return; }
   vec2 p = vec2(uv.x * uRes.x / uRes.y, uv.y) * 1.3 + uPointer * .05;
   float t = uTime;
   // Silk: the field is bent through itself twice, so light gathers into slow ribbons.
@@ -73,6 +96,7 @@ void main(){
   ck = mix(ck, vec3(1.,.992,.985), clamp(vein*.6 + smoothstep(.62,.9,veil)*.30, 0., 1.));
 
   vec3 col = mix(cs, ck, uSky);
+  if (uAurora > .002) col = mix(col, northern(uv, uRes.x / uRes.y, t, uPointer), uAurora);
   col += (hash(gl_FragCoord.xy) - .5) * (2./255.);   // dither: no banding in the dark
   gl_FragColor = vec4(col, 1.);
 }`;
@@ -82,7 +106,7 @@ void main(){
     let gl = null;
     try { gl = canvas.getContext("webgl", { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: "low-power" }); } catch { gl = null; }
     if (!gl) return null;
-    let uRes, uTime, uSky, uPointer;
+    let uRes, uTime, uSky, uAurora, uPointer;
     function setup() {
       const compile = (type, source) => { const s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s); return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null; };
       const vs = compile(gl.VERTEX_SHADER, VERTEX), fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
@@ -94,12 +118,12 @@ void main(){
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);   // one full-screen triangle
       const at = gl.getAttribLocation(program, "p"); gl.enableVertexAttribArray(at); gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
       uRes = gl.getUniformLocation(program, "uRes"); uTime = gl.getUniformLocation(program, "uTime");
-      uSky = gl.getUniformLocation(program, "uSky"); uPointer = gl.getUniformLocation(program, "uPointer");
+      uSky = gl.getUniformLocation(program, "uSky"); uAurora = gl.getUniformLocation(program, "uAurora"); uPointer = gl.getUniformLocation(program, "uPointer");
       return true;
     }
     if (!setup()) return null;
 
-    let width = 0, height = 0, clock = 14, mix = isSky() ? 1 : 0, raf = null, lastTick = 0, lastDraw = -1e9, dirty = true, lost = false;
+    let width = 0, height = 0, clock = 14, mix = isSky() ? 1 : 0, lights = isAurora() ? 1 : 0, raf = null, lastTick = 0, lastDraw = -1e9, dirty = true, lost = false;
     const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
     function resize() {
       const rect = canvas.getBoundingClientRect(), w = Math.max(1, rect.width), h = Math.max(1, rect.height);
@@ -113,13 +137,13 @@ void main(){
       if (lost) return;
       const dt = lastTick ? Math.min(80, now - lastTick) : 16; lastTick = now;
       const live = !document.hidden && !isCalm() && !isReading();
-      const goal = isSky() ? 1 : 0, fading = Math.abs(goal - mix) > .002;
+      const goal = isSky() ? 1 : 0, glow = isAurora() ? 1 : 0, fading = Math.abs(goal - mix) > .002 || Math.abs(glow - lights) > .002;
       if (live) clock += dt / 1000;
-      mix = fading ? mix + (goal - mix) * Math.min(1, dt / 320) : goal;
+      mix = fading ? mix + (goal - mix) * Math.min(1, dt / 320) : goal; lights = fading ? lights + (glow - lights) * Math.min(1, dt / 320) : glow;
       pointer.x += (pointer.tx - pointer.x) * Math.min(1, dt / 900); pointer.y += (pointer.ty - pointer.y) * Math.min(1, dt / 900);
       if (dirty || ((live || fading) && now - lastDraw >= 31)) {   // about 30 frames a second is plenty for slow light
         resize();
-        gl.uniform2f(uRes, width, height); gl.uniform1f(uTime, clock); gl.uniform1f(uSky, mix); gl.uniform2f(uPointer, pointer.x, pointer.y);
+        gl.uniform2f(uRes, width, height); gl.uniform1f(uTime, clock); gl.uniform1f(uSky, mix); gl.uniform1f(uAurora, lights); gl.uniform2f(uPointer, pointer.x, pointer.y);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
         lastDraw = now; dirty = false;
       }
@@ -148,7 +172,7 @@ void main(){
     flow?.refresh();
   }
   function updateTheme() {
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", isSky() ? "#f3eef8" : "#121126");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", isSky() ? "#f3eef8" : isAurora() ? "#07141c" : "#121126");
     flow?.refresh();
   }
   document.addEventListener("visibilitychange", updateMotion);

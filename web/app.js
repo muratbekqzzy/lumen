@@ -12,16 +12,17 @@ const store = {
 
 // Two atmospheres share the same library. Older light/dark preferences migrate once.
 const motionMedia = matchMedia("(prefers-reduced-motion: reduce)");
-const normalizeTheme = (value) => ["sky", "light"].includes(value) ? "sky" : "space";
+const normalizeTheme = (value) => ["sky", "light"].includes(value) ? "sky" : value === "aurora" ? "aurora" : "space";
+const THEMES = { space: { label: "Space", next: "sky" }, sky: { label: "Sky", next: "aurora" }, aurora: { label: "Aurora", next: "space" } };
 const currentTheme = () => normalizeTheme(document.documentElement.dataset.theme);
 const motionIsCalm = () => motionMedia.matches || document.documentElement.dataset.motion === "calm";
 function updateAtmosphereControls() {
-  const sky = currentTheme() === "sky", theme = $("#theme");
+  const now = currentTheme(), sky = now === "sky", theme = $("#theme"), next = THEMES[THEMES[now].next].label;
   if (theme) {
-    theme.innerHTML = `${sky ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/><circle cx="12" cy="12" r="4"/></svg>' : ICONS.moon}<span>${sky ? "Sky" : "Space"}</span>`;
-    theme.title = `Switch to ${sky ? "Space" : "Sky"}`;
-    theme.setAttribute("aria-label", `Atmosphere: ${sky ? "Sky" : "Space"}. Switch to ${sky ? "Space" : "Sky"}`);
-    theme.setAttribute("aria-pressed", String(sky));
+    theme.innerHTML = `${sky ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/><circle cx="12" cy="12" r="4"/></svg>' : now === "aurora" ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 15c3-7 5 3 8-4s5 3 10-5M4 20c3-4 5 1 8-2s5 1 8-3"/></svg>' : ICONS.moon}<span>${THEMES[now].label}</span>`;
+    theme.title = `Switch to ${next}`;
+    theme.setAttribute("aria-label", `Atmosphere: ${THEMES[now].label}. Switch to ${next}`);
+    theme.setAttribute("aria-pressed", String(now !== "space"));
   }
   const motion = $("#gmotion");
   if (motion) {
@@ -198,7 +199,7 @@ function renderSidebar() {
     if (r.dataset.id) dropTarget(r, r.dataset.id, "y");
   });
   if ($("#lumen-sync-settings")) { $("#lumen-sync-settings").onclick = () => window.LumenCloud.settings(); window.LumenCloud.updateIndicator?.(); }
-  $("#theme").onclick = () => setAtmosphere(currentTheme() === "sky" ? "space" : "sky");
+  $("#theme").onclick = () => setAtmosphere(THEMES[currentTheme()].next);
   updateAtmosphereControls();
   markActive();
 }

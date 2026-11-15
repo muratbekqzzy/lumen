@@ -14,17 +14,18 @@ function rgb(value) {
 }
 const rgba = (hex, a) => `rgba(${rgb(hex).join(",")},${clamp(a, 0, 1)})`;
 const palettes = {
-  space: { ink: "#f4f0fb", muted: "#b3abcf", star: "#dcd3f2", concept: "#b7c4ee", bridge: "#fbd8e0", dust: "#d8d1f0", core: "#fffaf2", halo: "#b9a8e6", edge: .10, lit: .42 },
-  sky: { ink: "#3f3460", muted: "#7c7099", star: "#9f86c9", concept: "#8397c4", bridge: "#cf90c1", dust: "#a394c8", core: "#6f549f", halo: "#b193d6", edge: .14, lit: .46 },
+  space: { ink: "#f4f0fb", muted: "#b3abcf", star: "#dcd3f2", concept: "#b7c4ee", bridge: "#fbd8e0", dust: "#d8d1f0", core: "#fffaf2", halo: "#b9a8e6", edge: .12, lit: .46, gain: 1.4, coreScale: 1.25 },
+  aurora: { ink: "#eafaf5", muted: "#9cc7bd", star: "#d4fff0", concept: "#9fe8d2", bridge: "#e9c8ff", dust: "#cdeee6", core: "#ffffff", halo: "#7fe6c4", edge: .12, lit: .5, gain: 1.4, coreScale: 1.25 },
+  sky: { ink: "#3f3460", muted: "#7c7099", star: "#9f86c9", concept: "#8397c4", bridge: "#cf90c1", dust: "#a394c8", core: "#6f549f", halo: "#b193d6", edge: .14, lit: .46, gain: 1, coreScale: 1 },
 };
 const galaxyCache=new Map();let galaxyCacheBytes=0;
 function randomFrom(seed){let value=2166136261;for(const char of String(seed))value=Math.imul(value^char.charCodeAt(0),16777619);return()=>{value+=0x6D2B79F5;let n=value;n=Math.imul(n^n>>>15,n|1);n^=n+Math.imul(n^n>>>7,n|61);return ((n^n>>>14)>>>0)/4294967296;};}
-function galaxySprite(sky,index,pixelDemand=512){
- const resolution=textureResolution(pixelDemand),variant=index%2,key=(sky?'sky':'space')+variant+'-'+resolution;
+function galaxySprite(theme,index,pixelDemand=512){const sky=theme==='sky';
+ const resolution=textureResolution(pixelDemand),variant=index%2,key=theme+variant+'-'+resolution;
  if(galaxyCache.has(key)){const canvas=galaxyCache.get(key);galaxyCache.delete(key);galaxyCache.set(key,canvas);return canvas;}
  const canvas=document.createElement('canvas');canvas.width=canvas.height=resolution;const g=canvas.getContext('2d'),random=randomFrom('galaxy-'+variant);
  g.setTransform(resolution/512,0,0,resolution/512,0,0);g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';
- const colors=sky?(variant?['#8397c4','#cf90c1','#8d80b0']:['#cf90c1','#8d80b0','#8397c4']):variant?['#aacbe0','#cf90c1','#8d80b0']:['#fbd8e0','#8397c4','#cf90c1'];
+ const colors=theme==='aurora'?(variant?['#6fb8ff','#7ef0c0','#c59bff']:['#7ef0c0','#c59bff','#6fb8ff']):sky?(variant?['#8397c4','#cf90c1','#8d80b0']:['#cf90c1','#8d80b0','#8397c4']):variant?['#aacbe0','#cf90c1','#8d80b0']:['#fbd8e0','#8397c4','#cf90c1'];
  // A low-contrast light field, with the same filament positions at every resolution.
  for(let j=0;j<3;j++){
   g.save();g.translate(256+(j-1)*28,256+(j-1)*14);g.scale(1,.6+j*.035);
@@ -56,7 +57,7 @@ function sparkle(color,heart='#ffffff'){
  const canvas=document.createElement('canvas');canvas.width=canvas.height=128;const g=canvas.getContext('2d'),c=64;
  const ray=(reach,waist,alpha)=>{g.globalAlpha=alpha;g.beginPath();g.moveTo(c,c-reach);g.quadraticCurveTo(c+waist,c-waist,c+reach,c);g.quadraticCurveTo(c+waist,c+waist,c,c+reach);g.quadraticCurveTo(c-waist,c+waist,c-reach,c);g.quadraticCurveTo(c-waist,c-waist,c,c-reach);g.fill();};
  g.fillStyle=color;ray(62,7,.22);ray(54,3.2,.5);g.fillStyle=heart;ray(40,1.4,.9);
- g.globalAlpha=1;if(sparkleCache.size>=48)sparkleCache.delete(sparkleCache.keys().next().value);sparkleCache.set(key,canvas);return canvas;
+ g.globalAlpha=1;if(sparkleCache.size>=120)sparkleCache.delete(sparkleCache.keys().next().value);sparkleCache.set(key,canvas);return canvas;
 }
 
 export function mountGraph(host, data, opts = {}) {
@@ -70,13 +71,15 @@ export function mountGraph(host, data, opts = {}) {
   const cleanups = [];
   function listen(target, name, handler, options) { target.addEventListener(name, handler, options); cleanups.push(() => target.removeEventListener(name, handler, options)); }
   let W = 0, H = 0, dpr = canvasPixelRatio(W,H,globalThis.devicePixelRatio||1);
-  let destroyed = false, raf = null, palette = palettes.space, sky = false, reduceMotion = false;
+  let destroyed = false, raf = null, palette = palettes.space, sky = false, themeName = 'space', reduceMotion = false;
   let t0 = performance.now(), last = -Infinity, settled = false, needsDraw = true;
   const nodes = (data.nodes || []).map((n, i) => ({ ...n, title: String(n.title || "Untitled"), i, vis: 0, born: 100 + Math.min(i * 12, 720),
     r: (KIND_R[n.kind] || 2) + Math.min(5, Math.sqrt(Math.max(0, n.degree || 0)) * (n.kind === "concept" ? .55 : .35)),
     phase: randomFrom(n.id)() * Math.PI * 2, luminance:.74+randomFrom(n.id+"light")()*.20, dx: 0, dy: 0 }));
+  const TINTS = ["#ffffff", "#dfe9ff", "#fff3dc", "#ffe3ee"];
+  for (const n of nodes) { const r = randomFrom(n.id + "shimmer"); n.tw1 = .6 + r() * 1.4; n.tw2 = .6 + r() * 1.4; n.tint = TINTS[Math.floor(r() * TINTS.length)]; n.hov = 0; }
   const byId = new Map(nodes.map(n => [n.id, n]));
-  const links = (data.edges || []).filter(e => byId.has(e.source) && byId.has(e.target)).map(e => ({ ...e, vis: 0 }));
+  const links = (data.edges || []).filter(e => byId.has(e.source) && byId.has(e.target)).map((e, i) => ({ ...e, vis: 0, hot: 0, seed: (i * .381966) % 1 }));
   const nbrs = new Map(nodes.map(n => [n.id, new Set()]));
   links.forEach(l => { nbrs.get(l.source).add(l.target); nbrs.get(l.target).add(l.source); });
   for (const n of nodes) n.galaxy = n.section || (n.kind !== "concept" ? "inbox" : null);
@@ -201,7 +204,7 @@ export function mountGraph(host, data, opts = {}) {
     wake();
   });
   function updatePreferences() {
-    sky = ["sky", "light"].includes(document.documentElement.dataset.theme); palette = sky ? palettes.sky : palettes.space;
+    const theme = document.documentElement.dataset.theme; sky = ["sky", "light"].includes(theme); themeName = sky ? "sky" : theme === "aurora" ? "aurora" : "space"; palette = palettes[themeName];
     reduceMotion = motionQuery.matches || document.documentElement.dataset.motion === "calm";
     if (reduceMotion) { nodes.forEach(n => { n.vis = shown(n) ? 1 : 0; }); }
     wake();
@@ -230,12 +233,12 @@ export function mountGraph(host, data, opts = {}) {
     const empty = !nodes.length, radius = Math.max(W,H)*.65;
     const cx=W/2+view.x*.025,cy=H/2+view.y*.025;
     const rotation = reduceMotion ? .3 : t * .000023, cr = Math.cos(rotation), sr = Math.sin(rotation);
-    if(empty&&!mini){const size=Math.min(W*.95,H*.7,550);ctx.save();ctx.translate(cx,cy);ctx.rotate(reduceMotion?-.2:t*.000026-.2);ctx.globalAlpha=.88;ctx.drawImage(galaxySprite(sky,0,size*dpr),-size/2,-size/2,size,size);ctx.restore();}
+    if(empty&&!mini){const size=Math.min(W*.95,H*.7,550);ctx.save();ctx.translate(cx,cy);ctx.rotate(reduceMotion?-.2:t*.000026-.2);ctx.globalAlpha=.88;ctx.drawImage(galaxySprite(themeName,0,size*dpr),-size/2,-size/2,size,size);ctx.restore();}
     for (const s of stars) {
       const x = s.x * cr - s.z * sr, z = s.x * sr + s.z * cr, depth = clamp((z + 1.2) / 2.2, .05, 1);
-      const twinkle = reduceMotion ? 1 : .96 + .04 * Math.sin(t * .00025 * s.tw + s.phase);
+      const twinkle = reduceMotion ? 1 : s.tw > .85 ? .5 + .5 * Math.sin(t * .0016 * s.tw + s.phase) : .9 + .1 * Math.sin(t * .0004 * s.tw + s.phase);
       const px = cx + x * radius, py = cy + s.y * radius;
-      ctx.globalAlpha = s.a * depth * twinkle * (mini ? .55 : empty ? 1 : sky ? .42 : .6);
+      ctx.globalAlpha = s.a * depth * twinkle * (mini ? .55 : empty ? 1 : sky ? .42 : .8);
       ctx.fillStyle = s.size > 1 ? palette.bridge : palette.dust;
       ctx.fillRect(px, py, s.size, s.size);
       if (empty && s.size > 1 && depth > .65) { ctx.globalAlpha *= .5; const size = 8; ctx.drawImage(glow(palette.halo), px - size, py - size, size * 2, size * 2); }
@@ -245,7 +248,7 @@ export function mountGraph(host, data, opts = {}) {
   function frame(time) {
     raf = null; if (destroyed || document.hidden) return;
     if (W < 1 || H < 1) return;
-    const interacting=pointers.size>0||!settled||Math.abs(target.k-view.k)+Math.abs(target.angle-view.angle)>.01||Math.abs(target.x-view.x)+Math.abs(target.y-view.y)>.5;
+    const interacting=pointers.size>0||!settled||Boolean(hover||selected)||Math.abs(target.k-view.k)+Math.abs(target.angle-view.angle)>.01||Math.abs(target.x-view.x)+Math.abs(target.y-view.y)>.5;
     const frameInterval=interacting?1000/60:1000/30;
     if (!needsDraw && !reduceMotion && time - last < frameInterval - 1) { raf = requestAnimationFrame(frame); return; }
     const t = time - t0; last = time; needsDraw = false;
@@ -255,7 +258,7 @@ export function mountGraph(host, data, opts = {}) {
     view.angle += (target.angle-view.angle)*e;
     const active = selected || hover, q = query.toLowerCase(), lit = active ? new Set([active.id, ...nbrs.get(active.id)]) : null;
     for (const n of nodes) {
-      const alive = reduceMotion || t > n.born ? 1 : 0, want = !shown(n) ? 0 : lit ? lit.has(n.id) ? 1 : .13 : q ? n.title.toLowerCase().includes(q) ? 1 : .13 : 1;
+      const alive = reduceMotion || t > n.born ? 1 : 0, want = !shown(n) ? 0 : lit ? lit.has(n.id) ? 1 : selected ? .26 : .62 : q ? n.title.toLowerCase().includes(q) ? 1 : .13 : 1;
       n.vis += (want * alive - n.vis) * (reduceMotion ? 1 : .11);
       const amp = reduceMotion ? 0 : n.kind === "concept" ? 1.3 : .65;
       n.dx = Math.sin(t * .00028 + n.phase) * amp; n.dy = Math.cos(t * .00024 + n.phase * 1.3) * amp;
@@ -272,25 +275,41 @@ export function mountGraph(host, data, opts = {}) {
       const dim=active&&active.galaxy!==g.id?.48:1,spin=g.spin+(reduceMotion?0:t*.000026);
       const size=g.rad*3.2,center=screenPoint({x:g.cx,y:g.cy},view,W,H),reach=size*view.k/2;
       if(center.x+reach<0||center.x-reach>W||center.y+reach<0||center.y-reach>H)continue;
-      ctx.save();ctx.translate(g.cx,g.cy);ctx.rotate(spin);ctx.globalAlpha=dim*(sky?.85:.9);ctx.drawImage(galaxySprite(sky,g.index,size*view.k*dpr),-size/2,-size/2,size,size);ctx.restore();
+      ctx.save();ctx.translate(g.cx,g.cy);ctx.rotate(spin);ctx.globalAlpha=dim*(sky?.85:.9);ctx.drawImage(galaxySprite(themeName,g.index,size*view.k*dpr),-size/2,-size/2,size,size);ctx.restore();
     }
     ctx.globalCompositeOperation = "source-over";
+    const quick = reduceMotion ? 1 : .14;
     for (const l of links) {
       const s = l.source, d = l.target, highlighted = active && (s === active || d === active), want = Math.min(s.vis, d.vis);
-      l.vis += (want - l.vis) * (reduceMotion ? 1 : .15); if (l.vis < .02) continue;
-      const sx = s.x + s.dx, sy = s.y + s.dy, tx = d.x + d.dx, ty = d.y + d.dy;
-      ctx.beginPath(); ctx.moveTo(sx, sy);
-      ctx.quadraticCurveTo((sx+tx)/2+(ty-sy)*.13,(sy+ty)/2-(tx-sx)*.13,tx,ty);
-      ctx.strokeStyle = rgba(colorOf(s.kind === "concept" ? d : s), (highlighted ? palette.lit : palette.edge) * l.vis); ctx.lineWidth = (highlighted ? .9 : .55) / view.k; ctx.stroke();
+      l.vis += (want - l.vis) * (reduceMotion ? 1 : .15); l.hot += ((highlighted ? 1 : 0) - l.hot) * quick; if (l.vis < .02) continue;
+      const sx = s.x + s.dx, sy = s.y + s.dy, tx = d.x + d.dx, ty = d.y + d.dy, cx = (sx+tx)/2+(ty-sy)*.13, cy = (sy+ty)/2-(tx-sx)*.13;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(cx, cy, tx, ty);
+      ctx.strokeStyle = rgba(colorOf(s.kind === "concept" ? d : s), (palette.edge + (palette.lit - palette.edge) * l.hot) * l.vis); ctx.lineWidth = (.55 + .45 * l.hot) / view.k; ctx.stroke();
+      if (l.hot > .05 && !reduceMotion) {   // a mote of light travels along each thread of the chosen star
+        const u = (t * .00045 + l.seed) % 1, v = 1 - u, mx = v*v*sx + 2*v*u*cx + u*u*tx, my = v*v*sy + 2*v*u*cy + u*u*ty, size = 5 / view.k;
+        ctx.globalAlpha = l.hot * l.vis * Math.sin(u * Math.PI) * .9; ctx.drawImage(glow(palette.core), mx - size, my - size, size * 2, size * 2); ctx.globalAlpha = 1;
+      }
     }
     for (const n of nodes) {
+      n.hov += ((n === active ? 1 : 0) - n.hov) * quick;
       if (n.vis < .02) continue;
       const c=colorOf(n),x=n.x+n.dx,y=n.y+n.dy,birth=reduceMotion?1:ease((t-n.born)/900),light=starAppearance(n.kind,n.r,view.k,n===active);
       const radius=light.corePx*birth/view.k,halo=light.haloPx*birth/view.k;if(radius<=0)continue;
-      const twinkle=reduceMotion?1:.86+.14*Math.sin(t*.0011+n.phase*3.1);
-      ctx.globalAlpha=n.vis*light.haloOpacity*n.luminance*twinkle;ctx.drawImage(glow(c),x-halo,y-halo,halo*2,halo*2);
-      if(n.kind==='section'||n===active){const rays=halo*(n===active?1.25:.95)*(.92+.08*twinkle);ctx.globalAlpha=n.vis*(n===active?.95:.7)*twinkle;ctx.drawImage(sparkle(c,sky?palette.core:'#ffffff'),x-rays,y-rays,rays*2,rays*2);}
-      ctx.globalAlpha=n.vis*n.luminance;ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.fillStyle=palette.core;ctx.fill();
+      // Scintillation: two slow waves beat against each other, and now and then a star glints.
+      const wave=reduceMotion?0:Math.sin(t*.0017*n.tw1+n.phase)*Math.sin(t*.0031*n.tw2+n.phase*1.7),glint=reduceMotion?0:Math.pow(Math.max(0,Math.sin(t*.0007*n.tw1+n.phase*5)),28);
+      const shimmer=.78+.22*wave+.55*glint,h=n.hov,landmark=n.kind==='section',heart=sky?palette.core:n.tint;
+      if(h>.01){   // the star you point at blooms, breathes out rings of light and gathers orbiting motes
+        const bloom=halo*(2.2+1.2*h);ctx.globalAlpha=n.vis*.34*h;ctx.drawImage(glow(c),x-bloom,y-bloom,bloom*2,bloom*2);
+        if(!reduceMotion){
+          for(let i=0;i<2;i++){const u=(t*.00055+i*.5)%1,ring=halo*(.7+u*2.1);ctx.globalAlpha=n.vis*h*(1-u)*(1-u)*.5;ctx.beginPath();ctx.arc(x,y,ring,0,Math.PI*2);ctx.strokeStyle=c;ctx.lineWidth=1/view.k;ctx.stroke();}
+          for(let i=0;i<3;i++){const a=t*.0011+i*2.094+n.phase,orbit=halo*(1.15+.12*Math.sin(t*.002+i)),size=3.2/view.k;ctx.globalAlpha=n.vis*h*.9;ctx.drawImage(glow(heart),x+Math.cos(a)*orbit-size,y+Math.sin(a)*orbit*.82-size,size*2,size*2);}
+        }
+      }
+      const aura=halo*(1+.22*glint+.35*h);
+      ctx.globalAlpha=Math.min(1,n.vis*light.haloOpacity*n.luminance*shimmer*palette.gain);ctx.drawImage(glow(c),x-aura,y-aura,aura*2,aura*2);
+      const rays=halo*(landmark?.95:.6)*(.82+.3*shimmer+.75*h);
+      ctx.globalAlpha=Math.min(1,n.vis*(landmark?.72:.42)*shimmer*(1+.6*h));ctx.drawImage(sparkle(c,heart),x-rays,y-rays,rays*2,rays*2);
+      ctx.globalAlpha=Math.min(1,n.vis*n.luminance*palette.gain*(.85+.15*shimmer));ctx.beginPath();ctx.arc(x,y,radius*palette.coreScale*(1+.25*glint+.3*h),0,Math.PI*2);ctx.fillStyle=heart;ctx.fill();
     }
     ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;ctx.setTransform(dpr,0,0,dpr,0,0);
     if (hudFor && !mini) {

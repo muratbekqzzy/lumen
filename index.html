@@ -5,7 +5,7 @@
   <script>
     try {
       const theme = JSON.parse(localStorage.getItem("lumen.theme"));
-      document.documentElement.dataset.theme = theme === "sky" || theme === "light" ? "sky" : "space";
+      document.documentElement.dataset.theme = theme === "sky" || theme === "light" ? "sky" : theme === "aurora" ? "aurora" : "space";
       document.documentElement.dataset.motion = JSON.parse(localStorage.getItem("lumen.motion")) === "calm" ? "calm" : "full";
     } catch { document.documentElement.dataset.theme = "space"; }
   </script>

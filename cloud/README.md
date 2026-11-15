@@ -43,8 +43,8 @@ typing, offers matching stars, closes the keyboard when a result is selected,
 and returns to the overview when cleared. Search inputs use 16px text to avoid
 the small-input auto-zoom trigger on iOS; keyboard resizing preserves the camera.
 
-Use the **Sky / Space** control at the bottom of the sidebar to switch between
-pearl-pink/lilac sky and a warmer violet/pink space. The choice stays on this device. The
+Use the atmosphere control at the bottom of the sidebar to move between **Space**
+(violet night), **Sky** (pearl-pink and lilac) and **Aurora** (northern lights over a dark teal night). The choice stays on this device. The
 Universe view-options menu has a **Drift / Still** control for gentle motion; your device's
 reduced-motion setting always takes priority. Hidden tabs pause graph animation.
 Notes and study pages keep a quieter atmosphere for reading. The empty Universe
