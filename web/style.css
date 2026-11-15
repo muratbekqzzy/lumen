@@ -747,3 +747,21 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
  .single-editor textarea, .single-editor .preview { padding: 18px; }
  .editor-toolbar .btn { min-height: 40px; }
 }
+
+/* ================= signed-out state (hosted Lumen) ================= */
+.signin-card { max-width: 520px; margin: 24px auto; padding: 38px 30px; border-style: solid; background: var(--glass); }
+.signin-card h3 { font: 500 22px/1.25 var(--serif); letter-spacing: -.02em; color: var(--ink); margin: 0 0 10px; }
+.signin-card p { margin: 0 auto 20px; max-width: 40ch; }
+.signin-card .btn, .signin-banner .btn { min-height: 40px; padding: 8px 20px; justify-content: center; }
+.signin-banner { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 0 0 22px;
+  padding: 12px 14px 12px 18px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--glass); color: var(--ink-2); font-size: 14px; }
+.universe-welcome p { margin: 0 0 12px; color: var(--ink-2); font-size: 15px; text-align: center; }
+.universe-welcome a.btn { text-decoration: none; }
+.empty-hint a { color: var(--accent); font-weight: 500; }
+
+/* comfortable tap targets on touch screens (at least 40 × 40 px) */
+@media (pointer: coarse), (max-width: 900px) {
+  .side-foot .icon-btn, .nav-label .icon-btn, .lumen-settings-btn { width: 40px; height: 40px; }
+  .atmosphere-toggle { height: 40px; padding: 0 14px; }
+  .row .more { width: 36px; height: 36px; }
+}

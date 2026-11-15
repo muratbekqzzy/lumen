@@ -31,7 +31,10 @@ export default {
       'Cache-Control':'no-cache',
       'X-Content-Type-Options':'nosniff',
       'Referrer-Policy':'strict-origin-when-cross-origin',
-      'Cross-Origin-Resource-Policy':'same-origin'
+      'Cross-Origin-Resource-Policy':'same-origin',
+      'Strict-Transport-Security':'max-age=31536000',
+      // Low-risk hardening that cannot break inline scripts, widgets or CDNs the app relies on.
+      'Content-Security-Policy':"object-src 'none'; base-uri 'self'; form-action 'self'"
     }});
   }
 };\n`;

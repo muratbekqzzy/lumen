@@ -181,7 +181,7 @@ throw Error("This feature requires the Mac version: "+method+" "+p);
 const realFetch=window.fetch.bind(window);
 window.fetch=async(input,init={})=>{const u=typeof input==="string"?input:input.url;let url;try{url=new URL(u,location.href)}catch{return realFetch(input,init)}
 if(url.origin!==new URL(location.href).origin||!url.pathname.startsWith("/api/")||(url.pathname==="/api/sync"||url.pathname.startsWith("/api/lecture-files/")))return realFetch(input,init);try{let method=(init.method||"GET").toUpperCase(),b=init.body,parsed=b instanceof FormData?Object.fromEntries(b.entries()):typeof b==="string"?JSON.parse(b):{};if(HOSTED&&method!=="GET"&&method!=="POST"&&method!=="PUT"&&method!=="PATCH")throw Error("Unsupported method");
-if(HOSTED&&!owner&&method!=="GET"&&url.pathname!=="/api/render")throw Error("Connecting your account. Please wait before editing.");
+if(HOSTED&&!owner&&method!=="GET"&&url.pathname!=="/api/render")throw Error(needsSignIn?"Sign in to save changes to your library.":"Connecting your account. Please wait before editing.");
 const out=request(method,url.pathname+url.search,parsed);return out?.__html!==undefined?new Response(out.__html,{headers:{"Content-Type":"text/html"}}):result(out)}catch(e){return result({detail:e.message||String(e)},400)}};
 
 // A checkpoint describes the last server-confirmed version of every record.
@@ -191,6 +191,10 @@ const fingerprint=obj=>{const str=stable(obj);let a=2166136261,b=2246822519;for(
 const protectedIds=new Set(["root","inbox","archive"]);
 const live=(state,key)=>state.records[key]&&!(Number(state.deleted[key]||0)>=Number(state.records[key].updated||0)&&state.deleted[key])?state.records[key]:null;
 const signature=(state,key)=>live(state,key)?fingerprint(live(state,key)):state.deleted[key]?"deleted:"+state.deleted[key]:null;
+// Signed-out state: shown honestly in the interface, and no background polling while it lasts.
+let needsSignIn=false,lastAuthCheck=0;
+const signInHref=()=>"/signin-with-chatgpt?return_to="+encodeURIComponent(location.pathname+location.search+(location.hash||"#/"));
+function setNeedsSignIn(value){if(value)lastAuthCheck=now();if(needsSignIn===value)return;needsSignIn=value;window.dispatchEvent(new Event("lumen-auth-changed"))}
 let baseline=load(DATA+".checkpoint",null),user=null,pending=false,dirtyVersion=0,syncTimer=null,retryCount=0,verified=false,lastSyncState="offline",lastSyncMessage="Saved on this device";
 function updateIndicator(){
  const b=document.querySelector("#lumen-sync-settings");
@@ -294,15 +298,15 @@ async function sync(){
  if(!HOSTED){status("disconnected","Open the synced Lumen app to connect your devices");return false}
  if(!navigator.onLine){status("offline","Saved on this device · waiting for internet");return false}
  if(busy){pending=true;return false}
- busy=true;clearTimeout(syncTimer);status("syncing","Syncing your library…");let ok=false,authRequired=false;
+ busy=true;clearTimeout(syncTimer);if(needsSignIn)lastAuthCheck=now();status("syncing",needsSignIn?"Checking your sign-in…":"Syncing your library…");let ok=false,authRequired=false;
  try{
   for(let attempt=0;attempt<5;attempt++){
    const response=await fetchSync();
-   if(response.status===401){verified=false;user=null;authRequired=true;throw Error("Sign in to resume automatic sync. Your changes are saved on this device.")}
+   if(response.status===401){verified=false;user=null;authRequired=true;setNeedsSignIn(true);throw Error(owner?"Sign in to resume automatic sync. Your changes are saved on this device.":"Sign in to see your library.")}
    if(!response.ok)throw Error("Sync is temporarily unavailable. Your changes are saved on this device.");
    const incoming=await response.json();
    if(!incoming.user?.id||!Number.isSafeInteger(incoming.revision)||incoming.revision<0)throw Error("Could not verify your sync account. Your changes remain on this device.");
-   const changed=switchAccount(incoming.user),remote=incoming.state||base();
+   const changed=switchAccount(incoming.user),remote=incoming.state||base();setNeedsSignIn(false);
    if(!remote.records||!remote.deleted)throw Error("The cloud library could not be read. Your local library is safe.");
    if(changed&&load(DATA,null)===null&&incoming.state){db=copy(remote);localStorage.setItem(DATA,JSON.stringify(db));window.dispatchEvent(new Event("lumen-remote-updated"))}
    saveMerged(mergeStates(db,remote));
@@ -310,7 +314,7 @@ async function sync(){
    if(incoming.state&&stable(sent)===stable(remote)){checkpoint(sent,incoming.revision);pending=dirtyVersion!==writeAt;ok=true;break}
    const put=await fetchSync({method:"PUT",headers:{"Content-Type":"application/json","X-Lumen-User":user.id},body:JSON.stringify({userId:user.id,baseRevision:incoming.revision,state:sent})});
    if(put.status===409)continue;
-   if(put.status===401||put.status===403){verified=false;user=null;authRequired=true;throw Error("Your sign-in changed. Reload Lumen before syncing. Your changes are saved on this device.")}
+   if(put.status===401||put.status===403){verified=false;user=null;authRequired=true;setNeedsSignIn(true);throw Error("Your sign-in changed. Reload Lumen before syncing. Your changes are saved on this device.")}
    if(!put.ok){let detail="";try{detail=(await put.json()).detail||""}catch{}throw Error(detail||"Could not upload changes. They are saved on this device and will retry automatically.")}
    const receipt=await put.json();if(!Number.isSafeInteger(receipt.revision))throw Error("Sync confirmation was interrupted. Lumen will check again.");
    checkpoint(sent,receipt.revision);pending=dirtyVersion!==writeAt;ok=true;break;
@@ -324,18 +328,20 @@ async function sync(){
   if(pending&&!authRequired){const delay=ok?250:Math.min(60000,1000*2**Math.min(retryCount++,6));syncTimer=setTimeout(()=>sync(),delay)}
  }
 }
-window.addEventListener("online",()=>sync());
+// While signed out, check again at most every 30 seconds (e.g. after signing in in another tab).
+const wake=()=>needsSignIn&&now()-lastAuthCheck<30000?Promise.resolve(false):sync();
+window.addEventListener("online",()=>wake());
 window.addEventListener("offline",()=>status("offline","Saved on this device · waiting for internet"));
-window.addEventListener("focus",()=>sync());
-document.addEventListener("visibilitychange",()=>{if(!document.hidden)sync()});
+window.addEventListener("focus",()=>wake());
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)wake()});
 window.addEventListener("storage",ev=>{
  if(ev.key===OWNER_KEY&&HOSTED&&ev.newValue!==JSON.stringify(owner)){verified=false;user=null;status("disconnected","Account changed in another tab. Reload Lumen to continue.");return}
  if(ev.key===DATA&&ev.newValue){try{const incoming=JSON.parse(ev.newValue);if(incoming?.records){const merged=mergeStates(db,incoming);if(stable(merged)!==stable(db)){saveMerged(merged);queueSync(350)}}}catch(e){console.warn("Could not reconcile Lumen browser tabs",e)}}
 });
-setInterval(()=>{if(!document.hidden&&HOSTED)sync()},5000);
+setInterval(()=>{if(!document.hidden&&HOSTED&&!needsSignIn)sync()},5000);
 
 const st=document.createElement("style");
-st.textContent=".lumen-settings-btn{position:relative;flex-shrink:0}.lumen-sync-dot{position:absolute;bottom:0;right:0;width:6px;height:6px;border-radius:50%;background:#9b9b9b;box-shadow:0 0 0 2px var(--bg,#111)}.lumen-settings-btn[data-sync=synced] .lumen-sync-dot{background:#6dbb92}.lumen-settings-btn[data-sync=pending] .lumen-sync-dot,.lumen-settings-btn[data-sync=syncing] .lumen-sync-dot{background:#e6b45b}.lumen-settings-btn[data-sync=error] .lumen-sync-dot{background:#ec8080}#lumen-cloud-modal{position:fixed;inset:0;z-index:9001;background:#000b;display:grid;place-items:center;padding:15px}#lumen-cloud-modal .panel{box-sizing:border-box;width:min(520px,100%);max-height:95vh;overflow:auto;background:var(--panel,#1e2028);color:var(--ink,#f1f1f1);border:1px solid var(--line,#535563);border-radius:18px;padding:22px;font:14px/1.6 system-ui}#lumen-cloud-modal button,#lumen-cloud-modal a.action{display:inline-block;background:#a4c5ff;color:#161923;border:0;padding:9px 13px;border-radius:9px;margin:0 6px 8px 0;cursor:pointer;font:inherit;text-decoration:none}#lumen-cloud-modal button.secondary{background:#373d4c;color:#f1f1f1}#lumen-sync-status-detail[data-sync=error]{color:#e78871}#lumen-sync-status-detail[data-sync=synced]{color:#6dbb92}#lumen-cloud-modal .small{font-size:12px;color:var(--muted,#b6bac7)}";
+st.textContent=".lumen-settings-btn{position:relative;flex-shrink:0}.lumen-sync-dot{position:absolute;bottom:0;right:0;width:6px;height:6px;border-radius:50%;background:#9b9b9b;box-shadow:0 0 0 2px var(--bg,#111)}.lumen-settings-btn[data-sync=synced] .lumen-sync-dot{background:#6dbb92}.lumen-settings-btn[data-sync=pending] .lumen-sync-dot,.lumen-settings-btn[data-sync=syncing] .lumen-sync-dot{background:#e6b45b}.lumen-settings-btn[data-sync=error] .lumen-sync-dot{background:#ec8080}#lumen-cloud-modal{position:fixed;inset:0;z-index:9001;background:rgba(10,8,16,.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:grid;place-items:center;padding:16px}#lumen-cloud-modal .panel{box-sizing:border-box;width:min(500px,100%);max-height:92vh;overflow:auto;background:var(--panel,#1d1a2b);color:var(--ink,#f1edf7);border:1px solid var(--line-2,#3a3550);border-radius:20px;padding:26px;font:14.5px/1.6 var(--sans,system-ui);box-shadow:0 30px 80px rgba(0,0,0,.45)}#lumen-cloud-modal h2{font:500 22px/1.2 var(--serif,system-ui);letter-spacing:-.02em;margin:0 0 12px}#lumen-cloud-modal p{margin:0 0 12px;color:var(--ink-2,#d0c8dc)}#lumen-cloud-modal button,#lumen-cloud-modal a.action{display:inline-flex;align-items:center;min-height:40px;background:transparent;color:var(--ink,#f1edf7);border:1px solid var(--line-2,#3a3550);padding:8px 16px;border-radius:999px;margin:0 6px 8px 0;cursor:pointer;font:500 13.5px var(--sans,system-ui);text-decoration:none}#lumen-cloud-modal button:hover,#lumen-cloud-modal a.action:hover{background:var(--hover,rgba(255,255,255,.06))}#lumen-cloud-modal a.action{background:var(--accent,#cbb9df);border-color:var(--accent,#cbb9df);color:var(--bg,#15131f)}#lumen-sync-status-detail{font:500 11px var(--mono,monospace);letter-spacing:.04em;color:var(--muted,#aa9db8)!important}#lumen-sync-status-detail[data-sync=error]{color:#e78871!important}#lumen-sync-status-detail[data-sync=synced]{color:#6dbb92!important}#lumen-cloud-modal .small{font-size:12.5px;color:var(--muted,#aa9db8)}";
 document.head.append(st);
 function downloadBackup(){
  const link=document.createElement("a"),blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"});
@@ -368,7 +374,7 @@ function importData(data){
 function settings(){
  document.querySelector("#lumen-cloud-modal")?.remove();const modal=document.createElement("div");modal.id="lumen-cloud-modal";
  const returnTo=encodeURIComponent(location.pathname+location.search+(location.hash||"#/"));
- const account=HOSTED?(user?'<p>Signed in as <strong>'+escap(user.email||"your account")+'</strong>. Open Lumen with this same account on your other devices.</p>':'<p>Sign in to keep your library available across devices.</p><a class="action" target="_top" href="/signin-with-chatgpt?return_to='+returnTo+'">Sign in</a>'):'<p>Your existing library is saved in this browser. Open the synced Lumen app to use it on every device.</p>'+(window.LUMEN_SYNC_URL?'<a class="action" href="'+escap(window.LUMEN_SYNC_URL)+'" target="_top">Open synced Lumen</a>':"");
+ const account=HOSTED?(user?'<p>Signed in as <strong>'+escap(user.email||"your account")+'</strong>. Open Lumen with this same account on your other devices.</p>':'<p>Sign in to keep your library available across devices.</p><a class="action" target="_top" href="'+escap(signInHref())+'">Sign in</a>'):'<p>Your existing library is saved in this browser. Open the synced Lumen app to use it on every device.</p>'+(window.LUMEN_SYNC_URL?'<a class="action" href="'+escap(window.LUMEN_SYNC_URL)+'" target="_top">Open synced Lumen</a>':"");
  modal.innerHTML='<div class="panel" role="dialog" aria-modal="true" aria-label="Lumen settings"><h2>Your library</h2><p id="lumen-sync-status-detail" role="status"></p>'+account+'<p class="small">Changes save on this device immediately. Automatic sync runs while Lumen is open, and resumes when you reconnect. Keep a backup of important work.</p><button id="lumen-close">Close</button><button class="secondary" id="lumen-export">Export backup</button><button class="secondary" id="lumen-import">Import backup</button><input type="file" id="lumen-import-file" accept=".json" hidden>'+(HOSTED&&user?'<button class="secondary" id="lumen-signout">Sign out on this device</button>':"")+'<p id="lumen-form-error" role="alert"></p></div>';
  document.body.append(modal);updateIndicator();
  modal.querySelector("#lumen-close").onclick=()=>modal.remove();
@@ -386,6 +392,6 @@ function settings(){
  modal.addEventListener("keydown",e=>{if(e.key==="Escape")modal.remove()});
  modal.querySelector("#lumen-close").focus?.();
 }
-window.LumenCloud={whenReady,getUser:()=>verified?copy(user):null,get activeAccountId(){return owner},settings,sync,exportData:()=>copy(db),importData,downloadBackup,updateIndicator,get account(){return verified?copy(user):null},get state(){return {status:lastSyncState,message:lastSyncMessage,pending,lastSuccess}}};
+window.LumenCloud={get needsSignIn(){return HOSTED&&needsSignIn},signInHref,whenReady,getUser:()=>verified?copy(user):null,get activeAccountId(){return owner},settings,sync,exportData:()=>copy(db),importData,downloadBackup,updateIndicator,get account(){return verified?copy(user):null},get state(){return {status:lastSyncState,message:lastSyncMessage,pending,lastSuccess}}};
 if(HOSTED){status("pending","Connecting your library…");setTimeout(sync,0)}else status("disconnected","Saved on this device · open synced Lumen for automatic sync");
 })();

@@ -209,3 +209,15 @@ test("invalid backup imports leave the existing local library unchanged",async()
  const unsafe=JSON.parse(before);unsafe.records.bad=JSON.parse('{"id":"bad","kind":"note","title":"invalid","parent":"inbox","created":1,"updated":1,"__proto__":{"polluted":true}}');
  assert.throws(()=>a.window.LumenCloud.importData(unsafe),/unsupported field/);assert.equal(JSON.stringify(a.window.LumenCloud.exportData()),before);
 });
+test("signed-out visitors get an honest sign-in prompt and are not polled",async()=>{
+ const remote=fakeCloud();remote.account(null);let requests=0;
+ const b=browser({hosted:true,fetch:async(...args)=>{requests++;return remote.request(...args)}});
+ assert.equal(await b.window.LumenCloud.sync(),false);
+ assert.equal(b.window.LumenCloud.needsSignIn,true);
+ assert.match(b.window.LumenCloud.signInHref(),/^\/signin-with-chatgpt\?return_to=/);
+ await assert.rejects(api(b,"POST","/api/containers",{title:"Arabic"}),/Sign in to save changes/);
+ const before=requests;await b.hooks.focus();await b.hooks.online();
+ assert.equal(requests,before,"no background requests while signed out");
+ remote.account("alice");assert.equal(await b.window.LumenCloud.sync(),true);
+ assert.equal(b.window.LumenCloud.needsSignIn,false);
+});

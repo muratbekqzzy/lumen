@@ -180,6 +180,7 @@ function renderSidebar() {
     <div class="row" data-nav="#/library">${ICONS.home}<span class="label">Library</span></div>
     <div class="row" data-id="inbox" data-nav="#/n/inbox">${ICONS.inbox}<span class="label">Inbox</span><span class="count">${kids(TREE.inbox).length || ""}</span></div>`;
   $("#tree").innerHTML = sections.length ? sections.map((s) => rowHTML(s, 0)).join("")
+    : signedOut() ? `<div class="empty-hint">Sign in to see your sections. <a href="${h(signInHref())}" target="_top">Sign in</a></div>`
     : `<div class="empty-hint">No sections yet. Press <b>+</b> to create your first one, for example <i>Arabic</i> or <i>Neuropsychology</i>.</div>`;
   $("#nav-foot").innerHTML = `
     <div class="row" data-id="archive" data-nav="#/n/archive" title="Archive">${ICONS.archive}<span class="label">Archive</span></div>
@@ -501,6 +502,10 @@ function crumbs(list, extra = []) {
 }
 
 function pageLibrary() {
+  if (signedOut() && !kids(TREE).length && !kids(TREE.inbox).length) {
+    main().innerHTML = `<div class="page"><div class="hero"><h1>Library</h1><p>Your sections, modules and lectures, organised your way.</p></div>${signInCard("Sign in to see your library", "Your sections, lectures and notes are kept in your account. Sign in with the same account on every device.")}</div>`;
+    return;
+  }
   const sections = kids(TREE).filter(isContainer);
   const lectures = []; const walk = (n) => kids(n).forEach((k) => { if (k.kind === "lecture") lectures.push(k); walk(k); });
   walk(TREE); walk(TREE.inbox);
@@ -549,7 +554,7 @@ async function pageGraph(isCurrent = () => true) {
   $('#gmotion').onclick=()=>setMotion(motionIsCalm()?'full':'calm');updateAtmosphereControls();
   const [engine,data]=await Promise.all([loadGraph(),api('GET','/api/graph')]);if(!isCurrent()||!host?.isConnected)return;
   graphSignature=JSON.stringify(data);
-  if(!data.nodes.length){const welcome=document.createElement('div');welcome.className='universe-welcome';welcome.innerHTML='<button class="btn primary" id="begin-universe">Import a lecture</button>';host.parentElement.append(welcome);$('#begin-universe').onclick=()=>openMarkdownImport();}
+  if(!data.nodes.length){const welcome=document.createElement('div');welcome.className='universe-welcome';if(signedOut()){welcome.innerHTML=`<p>Sign in to see your universe</p><a class="btn primary" href="${h(signInHref())}" target="_top">Sign in</a>`;host.parentElement.append(welcome);}else{welcome.innerHTML='<button class="btn primary" id="begin-universe">Import a lecture</button>';host.parentElement.append(welcome);$('#begin-universe').onclick=()=>openMarkdownImport();}}
   const open=node=>{if(!node)return;go(node.kind==='concept'?`#/concept/${encodeURIComponent(node.title)}`:hrefFor(node));};
   const focus=node=>{if(node.kind==='concept'){const button=$('[data-f="concepts"]');button?.classList.add('on');button?.setAttribute('aria-pressed','true');store.set('universeConcepts',true);}GRAPH?.focus(node.id);};
   GRAPH=engine.mountGraph(host,data,{concepts:store.get('universeConcepts',false),onOpen:open,onSelect:(node,neighbors)=>{
@@ -873,7 +878,25 @@ async function pageHistory(isCurrent = () => true) {
     <div class="hist">${rows.map((r) => `<div class="h"><time>${new Date(r.date).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</time><span>${h(r.message)}</span></div>`).join("")}</div></div>`;
   $("#undo").onclick = async () => { const r = await api("POST", "/api/undo"); toast(`Undone: ${r.undone}`); await refresh(); };
 }
-function pageMissing() { main().innerHTML = `<div class="page"><div class="empty"><h3>Not found</h3><p>This item may have been moved or archived.</p><a class="btn" href="#/">Go home</a></div></div>`; }
+function pageMissing() {
+  if (signedOut()) { main().innerHTML = `<div class="page">${signInCard("Sign in to open this", "This link points to something in your library. Sign in and you'll come straight back here.")}</div>`; return; }
+  main().innerHTML = `<div class="page"><div class="empty"><h3>Not found</h3><p>This item may have been moved or archived.</p><a class="btn" href="#/">Go home</a></div></div>`;
+}
+
+// ---- signed-out state (hosted, synced Lumen only)
+function signedOut() { return !!window.LumenCloud?.needsSignIn; }
+function signInHref() { return window.LumenCloud?.signInHref?.() || "/signin-with-chatgpt?return_to=%2F"; }
+function signInCard(title, text) {
+  return `<div class="empty signin-card"><h3>${h(title)}</h3><p>${h(text)}</p><a class="btn primary" href="${h(signInHref())}" target="_top">Sign in</a></div>`;
+}
+function signInBanner() {
+  if (!signedOut() || main().querySelector(".signin-card, .signin-banner, .universe-welcome")) return;
+  const banner = document.createElement("div");
+  banner.className = "signin-banner"; banner.setAttribute("role", "status");
+  banner.innerHTML = `<span>You're signed out, so your library isn't shown here.</span><a class="btn primary" href="${h(signInHref())}" target="_top">Sign in</a>`;
+  (main().querySelector(".page") || main()).prepend(banner);
+}
+function requireSignIn() { if (!signedOut()) return false; window.LumenCloud?.settings?.(); return true; }
 
 // ------------------------------------------------------------------ router
 let firstRoute = true, routeVersion = 0, activeTransition = null;
@@ -915,14 +938,15 @@ async function renderRoute(hash = location.hash, isCurrent = () => true) {
     else if (parts[0] === "search") await pageSearch(decodeURIComponent(parts.slice(1).join("/")), isCurrent);
     else if (parts[0] === "history") await pageHistory(isCurrent);
     else pageMissing();
+    if (isCurrent()) signInBanner();
   } catch (e) { if (isCurrent()) { console.error(e); pageMissing(); } }
 }
 
 // ------------------------------------------------------------------ boot
 setAtmosphere(store.get("theme", "space"), false);
 setMotion(store.get("motion", "full"), false);
-$("#add-section").onclick = () => containerDialog({});
-$("#import-markdown")?.addEventListener("click", () => { const parts = location.hash.split("/"); openMarkdownImport(parts[1] === "lecture" ? {lectureId:parts[2]} : {parentId:parts[1] === "n" ? parts[2] : null}); });
+$("#add-section").onclick = () => { if (!requireSignIn()) containerDialog({}); };
+$("#import-markdown")?.addEventListener("click", () => { if (requireSignIn()) return; const parts = location.hash.split("/"); openMarkdownImport(parts[1] === "lecture" ? {lectureId:parts[2]} : {parentId:parts[1] === "n" ? parts[2] : null}); });
 let qt;
 $("#q").addEventListener("input", (e) => { clearTimeout(qt); const v = e.target.value.trim(); qt = setTimeout(() => v && go(`#/search/${encodeURIComponent(v)}`), 300); });
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.value.trim()) go(`#/search/${encodeURIComponent(e.target.value.trim())}`); });
@@ -953,6 +977,7 @@ function refreshAfterSync(){
  }).catch(console.error);
 }
 addEventListener("lumen-remote-updated", refreshAfterSync);
+addEventListener("lumen-auth-changed", () => { loadTree().then(() => route({ animate: false })).catch(console.error); });
 document.addEventListener("focusout",()=>{if(remoteRefreshNeeded)setTimeout(refreshAfterSync,150)});
 addEventListener("beforeunload", (event) => {
   if (!hasUnsavedDraft()) return;
