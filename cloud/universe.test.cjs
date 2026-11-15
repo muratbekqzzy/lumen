@@ -1,6 +1,12 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
 const geometry=()=>import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync('web/universe.js','utf8')).toString('base64'));
 const nodes=(children=0)=>[{id:'a',kind:'section',galaxy:'a'},{id:'b',kind:'section',galaxy:'b'},...Array.from({length:children},(_,i)=>({id:'lecture'+i,kind:'lecture',galaxy:'a'}))];
+test('camera easing covers the same distance at 30, 60 and 120 frames per second',async()=>{
+ const {motionResponse,seededRandom}=await geometry(),positions=[];
+ for(const fps of [30,60,120]){let x=0;for(let i=0;i<fps;i++)x+=(1-x)*motionResponse(1000/fps);positions.push(x);}
+ assert(Math.max(...positions)-Math.min(...positions)<1e-12);assert.equal(motionResponse(0),0);
+ const a=seededRandom('dust'),b=seededRandom('dust');for(let i=0;i<100;i++)assert.equal(a(),b());
+});
 test('small sections begin together and spread naturally as their contents grow',async()=>{
  const {galaxyLayout}=await geometry(),small=[...galaxyLayout(nodes()).values()],large=[...galaxyLayout(nodes(50)).values()];
  const distance=list=>Math.hypot(list[0].ax-list[1].ax,list[0].ay-list[1].ay);

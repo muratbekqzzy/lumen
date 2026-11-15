@@ -3,10 +3,11 @@ import { readFile, mkdir, writeFile, rm, cp, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const files = ['index.html', 'manifest.webmanifest', 'sw.js', 'web/app.js', 'web/import.js', 'web/pdf.js', 'web/tutor.js', 'web/markdown.js', 'web/aura.js', 'web/force.js', 'web/graph.js', 'web/universe.js', 'web/style.css', 'web/icon.svg', 'cloud/cloud.js', 'cloud/panopto.js', 'cloud/hosting.js', 'cloud/migrate.js'];
+const files = ['index.html', 'manifest.webmanifest', 'sw.js', 'web/app.js', 'web/import.js', 'web/pdf.js', 'web/tutor.js', 'web/markdown.js', 'web/aura.js', 'web/force.js', 'web/graph.js', 'web/galaxy.js', 'web/universe.js', 'web/style.css', 'web/icon.svg', 'cloud/cloud.js', 'cloud/panopto.js', 'cloud/hosting.js', 'cloud/migrate.js'];
 async function appendAssets(dir){for(const entry of await readdir(path.join(root,dir),{withFileTypes:true})){const name=dir+'/'+entry.name;if(entry.isDirectory())await appendAssets(name);else files.push(name)}}
 await appendAssets('web/pdfjs');
-const types = {mjs:'text/javascript; charset=utf-8',wasm:'application/wasm',html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',svg:'image/svg+xml',webmanifest:'application/manifest+json'};
+await appendAssets('web/fonts');
+const types = {woff2:'font/woff2',txt:'text/plain; charset=utf-8',mjs:'text/javascript; charset=utf-8',wasm:'application/wasm',html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',svg:'image/svg+xml',webmanifest:'application/manifest+json'};
 const assets = {};
 for (const name of files) {
   const binary=!['html','mjs','js','css','svg','webmanifest'].includes(name.split('.').pop())&&!name.includes('LICENSE');
