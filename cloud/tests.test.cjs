@@ -215,3 +215,17 @@ test("legacy GitHub Pages never requests a token or the unavailable sync endpoin
  assert.equal(await b.window.LumenCloud.sync(),false);assert.equal(requests,0);
  assert(!code.includes("github_pat_"));assert(!code.includes("api.github.com"));
 });
+test("undo preserves unrelated notes received from another device",async()=>{
+ const remote=fakeCloud(),a=await connected(remote),n=await api(a,"POST","/api/notes",{title:"Local item",body:"original"});await a.window.LumenCloud.sync();
+ const b=await connected(remote);await api(a,"POST","/api/rename",{id:n.id,title:"Renamed locally"});await a.window.LumenCloud.sync();
+ const other=await api(b,"POST","/api/notes",{title:"Other device addition",body:"keep me"});await b.window.LumenCloud.sync();await a.window.LumenCloud.sync();
+ await api(a,"POST","/api/undo");await a.window.LumenCloud.sync();await b.window.LumenCloud.sync();
+ assert.equal((await api(b,"GET","/api/notes/"+n.id)).title,"Local item");assert.equal((await api(b,"GET","/api/notes/"+other.id)).body,"keep me");
+});
+test("invalid backup imports leave the existing local library unchanged",async()=>{
+ const remote=fakeCloud(),a=await connected(remote),before=JSON.stringify(a.window.LumenCloud.exportData());
+ const invalid=JSON.parse(before);invalid.records.bad={id:"bad",kind:"note",title:"invalid",parent:"inbox"};
+ assert.throws(()=>a.window.LumenCloud.importData(invalid),/invalid item/);assert.equal(JSON.stringify(a.window.LumenCloud.exportData()),before);
+ const unsafe=JSON.parse(before);unsafe.records.bad=JSON.parse('{"id":"bad","kind":"note","title":"invalid","parent":"inbox","created":1,"updated":1,"__proto__":{"polluted":true}}');
+ assert.throws(()=>a.window.LumenCloud.importData(unsafe),/unsupported field/);assert.equal(JSON.stringify(a.window.LumenCloud.exportData()),before);
+});
