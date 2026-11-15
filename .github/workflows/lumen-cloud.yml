@@ -30,6 +30,8 @@ jobs:
           node --check cloud/cloud.js
           node --check cloud/panopto.js
           node --test cloud/tests.test.cjs
+          python -m unittest discover -s cloud -p '*_test.py' -v
+          python -m py_compile tools/panopto_from_link.py
           node --check web/app.js
           node --check web/graph.js
       - name: Assemble static site
