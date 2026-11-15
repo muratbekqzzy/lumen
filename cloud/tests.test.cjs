@@ -15,6 +15,7 @@ function browser(){
     Event, navigator:{onLine:true},location:{href:"https://example.github.io/lumen/"},setTimeout:()=>0,clearTimeout(){},setInterval(){},console,confirm:()=>true,alert:()=>{},btoa,atob};
  vm.createContext(context);
  vm.runInContext(code,context,{filename:"cloud/cloud.js"});
+ vm.runInContext(fs.readFileSync("cloud/panopto.js","utf8"),context,{filename:"cloud/panopto.js"});
  return {window,localStorage};
 }
 async function api(browser,method,path,body){
@@ -59,4 +60,34 @@ test("moves, archiving, restoring, and undo work",async()=>{
 test("data persists between page loads",async()=>{
  const b=browser();await api(b,"POST","/api/containers",{title:"Persistent",parent_id:"root"});
  assert(JSON.parse(b.localStorage.getItem("lumen.cloud.data.v1")).records);
+});
+
+test("timed Panopto captions keep their timestamps and cleanup duplicates",()=>{
+ const b=browser(), parser=b.window.LumenPanopto.parseCaptions;
+ const out=parser("WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nThe hippocampus.\n\n00:00:03.000 --> 00:00:05.000\nThe hippocampus.\n\n00:00:06.000 --> 00:00:09.500\nWorking memory.");
+ assert.equal(out.timed,true);
+ assert.equal(out.segments.length,2);
+ assert.equal(out.segments[0].end,5);
+ assert.equal(out.segments[1].text,"Working memory.");
+});
+test("Panopto TXT transcript imports without pretending it has timestamps",()=>{
+ const b=browser(), parsed=b.window.LumenPanopto.parseCaptions("This is the introduction to memory.\n\nThe hippocampus supports memory encoding.","panopto.txt");
+ assert.equal(parsed.timed,false);
+ assert.equal(parsed.segments.length,2);
+ const pages=[{page:1,title:"Memory",text:"Memory systems"},{page:2,title:"Hippocampus",text:"Hippocampus and encoding"}];
+ const chunks=b.window.LumenPanopto.align(pages,parsed.segments,false);
+ assert.equal(chunks.length,2);
+ assert(chunks.every(c=>c.approximate===true));
+ const pack=b.window.LumenPanopto.makePack("Lecture",parsed.segments,pages,chunks,false);
+ assert(pack["study-pack.md"].includes("estimated"));
+});
+test("Panopto import and corrected captions are saved in Lumen offline storage",async()=>{
+ const b=browser(), parent=await api(b,"POST","/api/containers",{parent_id:"root",title:"Psychology"});
+ const n=await api(b,"POST","/api/lectures/from-panopto",{parent_id:parent.id,title:"Memory",segments:[{id:0,start:0,end:4,text:"hipocampus"}],chunks:[{n:1,page:null,title:"Intro",start:0,end:4,segmentIds:[0]}],generated:{"study-pack.md":"# Intro"}});
+ const bundle=await api(b,"GET","/api/lectures/"+n.id);
+ assert.equal(bundle.chunks[0].said[0].text,"hipocampus");
+ await api(b,"PUT","/api/lectures/"+n.id+"/transcript",{segments:[{id:0,start:0,end:4,text:"hippocampus"}],chunks:bundle.chunks,generated:{"study-pack.md":"# Corrected"}});
+ const edited=await api(b,"GET","/api/lectures/"+n.id);
+ assert.equal(edited.chunks[0].said[0].text,"hippocampus");
+ assert.equal(edited.generated["study-pack.md"],"# Corrected");
 });
