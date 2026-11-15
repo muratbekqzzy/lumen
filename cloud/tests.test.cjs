@@ -11,7 +11,7 @@ function browser(options={}){
  const sessionStorage={getItem:k=>session.get(k)||null,setItem:(k,v)=>session.set(k,v),removeItem:k=>session.delete(k)};
  const fakeElement=()=>({style:{},innerHTML:"",onclick:null,append(){},remove(){},querySelector(){return fakeElement()},addEventListener(){}});
  const document={head:{append(){}},body:{append(){}},activeElement:{matches:()=>false},createElement:fakeElement,querySelector(){return null},addEventListener(n,cb){hooks[n]=cb},hidden:false};
- const window={fetch:options.fetch||async()=>new Response("",{status:404}),addEventListener(n,fn){hooks[n]=fn},dispatchEvent(){},location:{href:"https://example.github.io/lumen/"},navigator:{onLine:true}};
+ const window={fetch:options.fetch||(async()=>new Response("",{status:404})),addEventListener(n,fn){hooks[n]=fn},dispatchEvent(){},location:{href:"https://example.github.io/lumen/"},navigator:{onLine:true}};
  const context={window,document,localStorage,sessionStorage,crypto:webcrypto,TextEncoder,TextDecoder,Response,URL,URLSearchParams,FormData,AbortController,
     Event, navigator:{onLine:true},location:{href:"https://example.github.io/lumen/"},setTimeout:()=>0,clearTimeout(){},setInterval(){},console,confirm:()=>true,alert:()=>{},btoa,atob};
  vm.createContext(context);
