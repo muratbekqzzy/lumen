@@ -35,7 +35,7 @@ function interfaceApp({stored = {}, reduced = false, request, graphLoader} = {})
     querySelectorAll() { return []; }, createElement: () => new Element(), body: new Element('body')};
   const tree = {id: 'root', kind: 'root', title: 'Knowledge', children: [], inbox: {id: 'inbox', children: []}, archive: {id: 'archive', children: []}};
   const context = {document, location: {hash: '#/'}, history: {replaceState() {}}, window: {dispatchEvent(e) {events.push(e.type);}}, localStorage: {getItem: k => storage.get(k) || null, setItem: (k, v) => storage.set(k, v)}, matchMedia: () => media, Event, console, FormData,
-    setTimeout: () => 0, clearTimeout() {}, clearInterval() {}, setInterval: () => 0, confirm: () => true, navigator: {},
+    setTimeout: () => 0, clearTimeout() {}, clearInterval() {}, setInterval: () => 0, confirm: () => true, navigator: {}, URLSearchParams,
     fetch: async (path) => new Response(JSON.stringify(await (request?.(path) ?? (path === '/api/tree' ? tree : {nodes: [], edges: []}))), {headers: {'Content-Type': 'application/json'}}),
     graphLoader: graphLoader || (() => Promise.resolve({mountGraph(host, data) { const graph = {host, data, destroy() {graph.destroyed = true;}, setFilter() {}, setQuery() {}, clear() {}, fit() {}, focus() {}}; mounts.push(graph); return graph; }}))};
   vm.createContext(context); vm.runInContext(prefix + '\n' + syncRefresh, context);
@@ -128,4 +128,16 @@ test('native view transitions perform rendering inside the update callback', asy
   assert.equal(callbackFinished, true);
   assert.equal(app.mounts[0].destroyed, true);
   assert.match(app.elements.get('main').innerHTML, /<h1>Library<\/h1>/);
+});
+test('slides view renders all original PDF pages, including pages without aligned captions',()=>{
+ const app=interfaceApp(),mounted=[],file={id:'original',name:'Slides.pdf',uploaded:true};
+ app.context.window.LumenCloud={};app.context.window.LumenPDF={mountPage:(host,source,page)=>mounted.push({source,page})};
+ const body={innerHTML:'',querySelectorAll(selector){return selector==='[data-pdf-page]'?[1,2,3].map(page=>({dataset:{pdfPage:String(page)}})):[]}};
+ app.context.pdfBody=body;app.run('LECTURE='+JSON.stringify({meta:{source_pdf:file,slide_count:3},chunks:[{n:1,page:1,title:'Opening',said:[{text:'Evidence',start:0,id:0}]}]}));app.run('renderSlides(pdfBody,"lecture")');
+ assert.deepEqual(mounted.map(x=>x.page),[1,2,3]);assert.equal((body.innerHTML.match(/data-pdf-page=/g)||[]).length,3);assert.match(body.innerHTML,/No transcript has been assigned/);assert.doesNotMatch(body.innerHTML,/ghost-slide/);
+});
+test('older text-only imports explicitly request reattaching the original PDF',()=>{
+ const app=interfaceApp();app.context.window.LumenCloud={};app.context.window.LumenPanopto={};app.context.window.LumenPDF={};
+ const body={innerHTML:'',querySelectorAll(){return []}};app.context.pdfBody=body;app.run('LECTURE='+JSON.stringify({meta:{},chunks:[{n:1,page:1,title:'Text only',said:[]}]}));app.run('renderSlides(pdfBody,"lecture")');
+ assert.match(body.innerHTML,/Earlier imports kept text only/);assert.match(body.innerHTML,/Attach original PDF/);
 });

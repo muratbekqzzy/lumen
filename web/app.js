@@ -707,7 +707,7 @@ async function pageLecture(id, tab, isCurrent = () => true) {
       <span class="chip ${m.status === "complete" ? "ok" : busy ? "warn" : ""}">${statusLabel(m) || "New"}</span>
       ${m.panopto_url ? `<a class="btn ghost" href="${h(m.panopto_url)}" target="_blank" rel="noopener">Open in Panopto ${ICONS.ext}</a>` : ""}
       ${window.LumenPanopto && m.segments?.length ? `<button class="btn ghost" id="edit-captions">${m.caption_reviewed ? "Captions reviewed" : "Review captions"}</button>` : ""}
-      ${window.LumenCloud ? `<button class="btn ghost" id="copy-lecture-source">Copy lecture source</button><button class="btn ghost" id="add-study-material">Add study material</button>` : ""}
+      ${window.LumenCloud ? `<button class="btn ghost" id="attach-lecture-pdf">${m.source_pdf ? "Replace original PDF" : "Attach original PDF"}</button><input id="lecture-pdf-input" type="file" accept="application/pdf,.pdf" hidden><button class="btn ghost" id="copy-lecture-source">Copy tutor prompt + source</button><button class="btn ghost" id="add-study-material">Add study material</button>` : ""}
       <button class="icon-btn" id="lmore">${ICONS.more}</button>
     </div>
     ${window.LumenCloud && m.generated_source === "extractive" ? `<div class="study-notice" role="status"><strong>Draft study outline.</strong> Prepared from imported captions, not an AI analysis. ${m.caption_reviewed ? "Captions marked reviewed." : "Review technical terms against the recording or slides."}</div>` : ""}
@@ -720,6 +720,17 @@ async function pageLecture(id, tab, isCurrent = () => true) {
   $("#ttl").onclick = () => renameDialog(NODES.get(id) || { id, title: m.title });
   $("#lmore").onclick = (e) => openMenu(e, NODES.get(id) || { id, title: m.title, kind: "lecture" });
   if ($("#edit-captions")) $("#edit-captions").onclick = () => window.LumenPanopto.edit(id);
+  if ($("#attach-lecture-pdf")) {
+    const input = $("#lecture-pdf-input"), button = $("#attach-lecture-pdf");
+    button.onclick = () => input.click();
+    input.onchange = async () => {
+      const file = input.files?.[0]; if (!file) return;
+      button.disabled = true;
+      try { let count; try { count = (await window.LumenPDF.extractText(file)).length; } catch {}
+        const result = await window.LumenPDF.attach(id, file, count); toast(result.message);
+      } catch (error) { toast(error.message); } finally { button.disabled = false; input.value = ""; }
+    };
+  }
   if ($("#copy-lecture-source")) $("#copy-lecture-source").onclick = () => copyLectureSource(d);
   if ($("#add-study-material")) $("#add-study-material").onclick = () => preparedMaterialDialog(id);
   if (busy) { poll = setInterval(async () => { const j = await api("GET", "/api/lectures/" + id); if (!isCurrent()) return; if (!["processing", "queued", "transcribing"].includes(j.meta.status)) { clearInterval(poll); await refresh(); } }, 5000); return; }
@@ -732,19 +743,13 @@ async function pageLecture(id, tab, isCurrent = () => true) {
   wireAudio();
 }
 async function copyLectureSource(lecture) {
-  const lines = ["# " + lecture.meta.title, "", "Lecture source only. Use this source for explanations, cite its slide/part labels, and distinguish added information from the lecture. Do not invent references.", ""];
-  for (const chunk of lecture.chunks || []) {
-    lines.push("## " + (chunk.page ? "Slide " + chunk.page + (chunk.approximate ? " (approximate alignment)" : "") + ": " : "") + chunk.title);
-    if (chunk.slide_text) lines.push("Slide text: " + chunk.slide_text);
-    for (const segment of chunk.said || []) lines.push((segment.untimed || lecture.meta.timed_captions === false ? "" : "[" + fmtTime(segment.start) + "] ") + segment.text);
-    lines.push("");
-  }
-  const source = lines.join("\n");
-  try { if (!navigator.clipboard?.writeText) throw Error("Clipboard unavailable"); await navigator.clipboard.writeText(source); toast("Lecture source copied. Paste it with your request into your assistant."); }
+  if (!window.LumenTutor) { toast("Tutor prompt could not load. Reconnect and reload Lumen."); return; }
+  const source = window.LumenTutor.promptFor(lecture);
+  try { if (!navigator.clipboard?.writeText) throw Error("Clipboard unavailable"); await navigator.clipboard.writeText(source); toast("Tutor prompt and source copied. Paste them into your assistant; attach the PDF there for figures."); }
   catch {
     const link = document.createElement("a"), url = URL.createObjectURL(new Blob([source], {type:"text/plain;charset=utf-8"}));
-    link.href = url; link.download = "lumen-lecture-source.txt"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast("Clipboard unavailable. Downloaded the lecture source instead.");
+    link.href = url; link.download = "lumen-tutor-prompt-and-source.txt"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Clipboard unavailable. Downloaded the tutor prompt and source instead.");
   }
 }
 function preparedMaterialDialog(id) {
@@ -756,10 +761,11 @@ function preparedMaterialDialog(id) {
 }
 function emptyAsk(what, prompt) {
   const hosted = Boolean(window.LumenCloud);
-  return `<div class="empty"><h3>No ${what} yet</h3><p>${hosted ? "Automatic AI generation is not connected in this edition. Use Copy lecture source, work with your assistant, then Add study material to save the result here." : "Ask your connected Mac AI assistant to create it from this lecture:"}</p>
+  return `<div class="empty"><h3>No ${what} yet</h3><p>${hosted ? "Automatic AI generation is not connected in this edition. Use Copy tutor prompt + source, work with your assistant, then Add study material to save the result here." : "Ask your connected Mac AI assistant to create it from this lecture:"}</p>
     <code>${h(prompt)}</code><br><br><button class="btn" data-copy="${h(prompt)}">Copy prompt</button></div>`;
 }
 function pageLectureTab(id, tab) {
+  window.LumenPDF?.clearViews();
   $$(".tab").forEach((b) => b.classList.toggle("on", b.dataset.t === tab));
   const d = LECTURE, gen = d.generated_html, body = $("#tabbody"), t = d.meta.title;
   if (tab === "pack") body.innerHTML = gen["study-pack.md"] ? `<div class="prose">${gen["study-pack.md"]}</div>` : emptyAsk("study pack", `Make the study pack for my lecture “${t}” in Lumen.`);
@@ -792,22 +798,26 @@ function renderCards(md) {
     <div class="cards">${cards.map((c) => `<div class="flash-card" role="button" tabindex="0" aria-label="Reveal answer" aria-pressed="false"><div class="in"><div class="face front" aria-hidden="false"><small>Question</small><div>${h(c.q)}</div></div><div class="face back" aria-hidden="true"><small>Answer</small><div>${h(c.a)}</div></div></div></div>`).join("")}</div>`;
 }
 function renderSlides(body, id) {
-  const d = LECTURE;
-  if (!d.chunks.length) { body.innerHTML = `<div class="empty"><h3>No transcript yet</h3></div>`; return; }
-  body.innerHTML = `<p style="color:var(--muted);margin-top:-8px">${window.LumenPanopto ? "Caption text is grouped into parts or approximate slide sections. Review captions to correct terms. Untimed transcripts do not provide accurate playback timestamps." : `Each slide sits next to what was said while it was on screen. Click a time or any sentence to listen from that moment${d.meta.panopto_url ? ", or ↗ to open Panopto there" : ""}.`}</p>
-  <div class="slides">${d.chunks.map((c) => `
-    <div class="chunk" id="chunk-${c.n}" data-start="${c.start}" data-end="${c.end}">
-      <div>${c.page ? (window.LumenPanopto ? `<div class="ghost-slide"><div><b>${h(c.title)}</b><p>${h((c.slide_text || "").slice(0,500))}</p></div></div>` : `<img loading="lazy" src="/api/lectures/${id}/slides/${c.page}.png" alt="Slide ${c.page}">`)
-        : `<div class="ghost-slide"><div><b>${h(c.title)}</b>${c.not_in_pdf ? "Shown in the lecture, but not in your PDF slides" : window.LumenPanopto ? "Transcript part" : "Before the slides"}</div></div>`}</div>
-      <div><div class="head"><span class="t">${c.page ? `<span style="color:var(--muted);font-weight:400">${c.page}.</span> ` : ""}${h(c.title)}</span>
-        <button class="time" data-seek="${c.start}" ${window.LumenCloud && !c.link ? "disabled" : ""}>${ICONS.play} ${c.time}</button>${c.link ? `<a class="time" href="${h(c.link)}" target="_blank" rel="noopener" title="Open in Panopto at this moment">↗</a>` : ""}</div>
-        <div class="said">${c.said.length ? c.said.map((s) => `<span data-seek="${s.start}" data-s="${s.id}">${h(s.text)}</span> `).join("") : '<span class="none">No speech while this slide was shown.</span>'}</div></div>
-    </div>`).join("")}</div>
-  ${d.pages_not_shown?.length ? `<h2 class="sec">In your PDF but not shown in the recording</h2><p style="color:var(--muted)">Slides ${d.pages_not_shown.join(", ")}. These were probably merged or skipped in the version presented.</p>
-    <div class="grid">${d.pages_not_shown.map((p) => `<a href="/api/lectures/${id}/slides/${p}.png" target="_blank"><img loading="lazy" style="width:100%;border-radius:8px;border:1px solid var(--line)" src="/api/lectures/${id}/slides/${p}.png" alt="Slide ${p}"></a>`).join("")}</div>` : ""}`;
-  $$("[data-seek]", body).forEach((b) => b.onclick = () => seek(+b.dataset.seek, b.closest(".chunk")));
+  const d = LECTURE, original = d.meta.source_pdf;
+  let chunks = d.chunks;
+  if (window.LumenPDF && original) {
+    const count = Math.min(300, Math.max(1, d.meta.slide_count || 1));
+    chunks = [...d.chunks.filter(c => !c.page), ...Array.from({length: count}, (_, i) => d.chunks.find(c => c.page === i + 1) || {n:"pdf-" + (i+1),page:i+1,title:"Slide " + (i+1),start:0,end:0,time:"",said:[],slide_text:""})];
+  }
+  if (!chunks.length) { body.innerHTML = `<div class="empty"><h3>No transcript yet</h3><p>Attach a PDF using the lecture toolbar to view original slides.</p></div>`; return; }
+  body.innerHTML = `<p style="color:var(--muted);margin-top:-8px">${window.LumenPanopto ? "Original PDF pages appear beside imported captions. Transcript-to-slide grouping is approximate. Untimed transcripts have no accurate playback timestamps." : "Each slide appears alongside the transcript. Select a time to play the recording."}</p>
+    ${window.LumenPDF && !original ? `<div class="study-notice"><strong>Original PDF not attached.</strong> Earlier imports kept text only. Use Attach original PDF above to see the actual slides.</div>` : ""}
+    ${original && !original.uploaded ? `<div class="study-notice">The original PDF is saved on its upload device. It will upload to your account when that device reconnects.</div>` : ""}
+    ${original && !d.meta.slide_count ? `<div class="study-notice">The PDF page count could not be read. Use Open original PDF below to view all its pages.</div>` : ""}
+    <div class="slides">${chunks.map(c => `<div class="chunk" id="chunk-${c.n}" data-start="${c.start}" data-end="${c.end}">
+      <div>${c.page ? (window.LumenPDF && original ? `<div class="pdf-page-host" data-pdf-page="${c.page}"></div>` : window.LumenPanopto ? `<div class="ghost-slide"><div><b>${h(c.title)}</b><p>${h((c.slide_text||"").slice(0,500))}</p></div></div>` : `<img loading="lazy" src="/api/lectures/${id}/slides/${c.page}.png" alt="Slide ${c.page}">`) : `<div class="ghost-slide"><div><b>${h(c.title)}</b>Transcript part</div></div>`}</div>
+      <div><div class="head"><span class="t">${c.page ? c.page + ". " : ""}${h(c.title)}</span>${c.time ? `<button class="time" data-seek="${c.start}" ${window.LumenCloud&&!c.link?"disabled":""}>${ICONS.play} ${h(c.time)}</button>` : ""}${c.link?`<a class="time" href="${h(c.link)}" target="_blank" rel="noopener">↗</a>`:""}</div>
+      <div class="said">${c.said?.length ? c.said.map(s=>`<span data-seek="${s.start}" data-s="${s.id}">${h(s.text)}</span> `).join("") : '<span class="none">No transcript has been assigned to this page.</span>'}</div></div></div>`).join("")}</div>`;
+  if (!window.LumenCloud && d.pages_not_shown?.length) body.insertAdjacentHTML("beforeend", `<h2 class="sec">PDF pages not matched to the recording</h2><div class="grid">${d.pages_not_shown.map(page => `<a href="/api/lectures/${id}/slides/${page}.png" target="_blank" rel="noopener"><img loading="lazy" style="width:100%" src="/api/lectures/${id}/slides/${page}.png" alt="Slide ${page}"></a>`).join("")}</div>`);
+  if (window.LumenPDF && original) $$("[data-pdf-page]", body).forEach(host => window.LumenPDF.mountPage(host, original, Number(host.dataset.pdfPage)));
+  $$("[data-seek]", body).forEach(b => b.onclick = () => seek(+b.dataset.seek, b.closest(".chunk")));
   const want = new URLSearchParams(location.hash.split("?")[1] || "").get("chunk");
-  if (want) { const el = $("#chunk-" + want); if (el) { el.scrollIntoView({ block: "start" }); el.classList.add("flash"); } }
+  if (want) { const el = $("#chunk-" + want); if (el) { el.scrollIntoView({block:"start"}); el.classList.add("flash"); } }
 }
 function seek(t, chunk) {
   const a = $("#aud");
@@ -946,6 +956,7 @@ async function renderRoute(hash = location.hash, isCurrent = () => true) {
   const parts = path.split("/").filter(Boolean);
   markActive();
   clearInterval(poll);
+  window.LumenPDF?.clearViews();
   GRAPH?.destroy(); GRAPH = null;
   main().scrollTop = 0;
   main().classList.toggle("full", !parts.length || parts[0] === "graph");

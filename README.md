@@ -38,7 +38,12 @@ Your vault is **not** part of this repository.
 The hosted app imports captions or pasted transcripts and prepares labelled,
 extractive study outlines. It does not yet transcribe uploaded recordings or call
 an AI generator. Prepared assistant output can be saved into a lecture with **Add
-study material**. Local Whisper transcription and the MCP connector belong to the
+study material**. **Copy tutor prompt + source** provides a reusable teaching prompt
+for concept synthesis, worked examples, useful cards, interactive explorations and
+quizzes. This is an explicit hand-off to your assistant; it does not run GPT in the app.
+Original slide PDFs now render locally and sync through private account storage
+(20 MiB per file). Earlier text-only imports need their original PDFs reattached.
+Local Whisper transcription and the MCP connector belong to the
 separate Mac app. See the [study-workflow audit](docs/STUDY_WORKFLOW_AUDIT.md) for
 verified behavior, repairs and remaining production work.
 

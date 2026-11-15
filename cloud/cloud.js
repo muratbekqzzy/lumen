@@ -141,6 +141,13 @@ if(method==="PUT"&&v==="lectures"&&parts[3]==="transcript")return mod("Correct l
  touch(n);return {ok:true};
 });
 
+if(method==="PUT"&&v==="lectures"&&parts[3]==="slides-file")return mod("Attach original lecture slides",()=>{
+ const n=requireNode(oid),file=body.file;
+ if(n.kind!=="lecture"||!file||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(file.id)||typeof file.name!=="string"||!Number.isFinite(file.size)||file.size<=0||file.size>20*1024*1024)throw Error("Invalid original PDF reference");
+ if(Object.hasOwn(body,"expected_file_id")&&(n.source_pdf?.id||null)!==body.expected_file_id)return {ok:true,superseded:true};
+ if(n.source_pdf?.id!==file.id)n.slide_count=0;
+ n.source_pdf={id:file.id,name:file.name.slice(0,200),size:file.size,uploaded:!!file.uploaded};if(Number.isInteger(body.page_count)&&body.page_count>0&&body.page_count<=300)n.slide_count=body.page_count;touch(n);return {ok:true};
+});
 if(method==="PUT"&&v==="lectures"&&parts[3]==="materials")return mod("Save prepared study material",()=>{
  const kinds={"study-pack":"study-pack.md",flashcards:"flashcards.md",resources:"resources.md",explanation:"explain-"+id("e")+".md"},filename=kinds[body.kind];
  if(!filename||typeof body.body!=="string"||!body.body.trim())throw Error("Choose a material type and paste its content");
@@ -153,7 +160,7 @@ throw Error("This feature requires the Mac version: "+method+" "+p);
 }
 const realFetch=window.fetch.bind(window);
 window.fetch=async(input,init={})=>{const u=typeof input==="string"?input:input.url;let url;try{url=new URL(u,location.href)}catch{return realFetch(input,init)}
-if(url.origin!==new URL(location.href).origin||!url.pathname.startsWith("/api/")||url.pathname==="/api/sync")return realFetch(input,init);try{let method=(init.method||"GET").toUpperCase(),b=init.body,parsed=b instanceof FormData?Object.fromEntries(b.entries()):typeof b==="string"?JSON.parse(b):{};if(HOSTED&&method!=="GET"&&method!=="POST"&&method!=="PUT"&&method!=="PATCH")throw Error("Unsupported method");
+if(url.origin!==new URL(location.href).origin||!url.pathname.startsWith("/api/")||(url.pathname==="/api/sync"||url.pathname.startsWith("/api/lecture-files/")))return realFetch(input,init);try{let method=(init.method||"GET").toUpperCase(),b=init.body,parsed=b instanceof FormData?Object.fromEntries(b.entries()):typeof b==="string"?JSON.parse(b):{};if(HOSTED&&method!=="GET"&&method!=="POST"&&method!=="PUT"&&method!=="PATCH")throw Error("Unsupported method");
 if(HOSTED&&!owner&&method!=="GET"&&url.pathname!=="/api/render")throw Error("Connecting your account. Please wait before editing.");
 const out=request(method,url.pathname+url.search,parsed);return out?.__html!==undefined?new Response(out.__html,{headers:{"Content-Type":"text/html"}}):result(out)}catch(e){return result({detail:e.message||String(e)},400)}};
 
@@ -345,7 +352,9 @@ function settings(){
  modal.querySelector("#lumen-import-file").onchange=async e=>{const line=modal.querySelector("#lumen-form-error");try{const file=e.target.files?.[0];if(!file)return;importData(JSON.parse(await file.text()));line.textContent=HOSTED?"Backup imported. Syncing automatically…":"Backup imported on this device."}catch(err){line.textContent=err.message}};
  const signout=modal.querySelector("#lumen-signout");if(signout)signout.onclick=async()=>{
   const line=modal.querySelector("#lumen-form-error");signout.disabled=true;
+  if(window.LumenPDF&&!(await window.LumenPDF.flush())){line.textContent="Some original PDFs are still saved only on this device. Reconnect before signing out so they can upload.";signout.disabled=false;return}
   if(!(await sync())){line.textContent="Reconnect before signing out so every change is saved to your account. You can export a separate backup here.";signout.disabled=false;return}
+  if(window.LumenPDF)await window.LumenPDF.clearAccountCache(owner);
   verified=false;user=null;localStorage.removeItem(DATA);localStorage.removeItem(HISTORY);localStorage.removeItem(DATA+".checkpoint");owner=null;localStorage.removeItem(OWNER_KEY);db=base();history=[];window.dispatchEvent(new Event("lumen-remote-updated"));location.href="/signout-with-chatgpt?return_to=%2F";
  };
  modal.addEventListener("click",e=>{if(e.target===modal)modal.remove()});

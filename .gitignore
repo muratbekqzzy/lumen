@@ -21,3 +21,7 @@ node_modules/
 .sites-runtime/
 .wrangler/
 outputs/
+
+# Private API credentials
+.env.local
+.env.*.local

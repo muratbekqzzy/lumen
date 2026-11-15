@@ -7,11 +7,12 @@ that a cloud AI service exists.
 
 | Area | Current implementation | Verification and remaining limitation |
 | --- | --- | --- |
-| Browser lecture import | Caption file or pasted transcript, optional PDF text and Panopto link | Fixture tests cover timed/untimed imports, sparse IDs and malformed cues. Actual private university Panopto access is not tested or fetched by the app. |
+| Browser lecture import | Caption file or pasted transcript, optional original PDF and Panopto link | Fixture tests cover timed/untimed imports, sparse IDs and malformed cues. Actual private university Panopto access is not tested or fetched by the app. |
+| Original PDF slides | Local PDF.js renderer, account-scoped IndexedDB cache and authenticated private object storage | PDFs up to 20 MiB upload independently of library snapshots; offline uploads retry. Normal and suffix byte ranges are tested. A real two-page PDF rendered with text and graphics-only content using a Node canvas. Earlier imports discarded original bytes and require reattachment. Full browser/mobile and production authenticated upload checks remain outstanding. Image-only PDFs can display but are not OCR-transcribed. |
 | Browser transcription | No recording transcription endpoint | Raw audio requires a future hosted transcription service, private object storage and durable jobs. |
 | Mac transcription | MLX Whisper on Apple Silicon | Fixed bundled FFmpeg discovery, dense IDs after blank segments, no-speech failure, language detection/selection and serialized model runs. Boundary tests use a mocked model; a real local FastAPI fixture and the bundled FFmpeg executable also passed smoke checks. No real Mac or audio-accuracy benchmark was available. |
-| Study generation | Extractive drafts in the browser; external assistant materials can be pasted into the lecture | Drafts are labelled, excerpts are marked, prepared output can be saved, personal notes/resources are protected. No automatic model reasoning, fact checking or reliable exam-question generation is implemented. |
-| Rich study content | Local Markdown engine with tables, code fences and concept links; app enhancements for quizzes/plots/widgets/math | Tested safe Markdown and rich-block structure. Plots/PDF/math may need external browser libraries; visual/device runtime testing remains outstanding. |
+| Study generation | Extractive drafts in the browser; reusable tutor prompt plus source can be copied to an external assistant | Prompt requests concept synthesis, citations, worked examples, meaningful cards, quizzes and self-contained simulations. Prepared output can be saved; personal notes/resources are protected. OpenAI Platform rejected the authorized API-key creation request, so no key was saved and no automatic GPT generation has been connected or tested. Prompt quality does not establish generated-output quality. |
+| Rich study content | Local Markdown engine and PDF renderer; app enhancements for quizzes/plots/widgets/math | Tested safe Markdown and rich-block structure. Plotly and math still load external browser libraries. Complete visual/device runtime testing remains outstanding. |
 | Transcript correction | Searchable, paginated review, optional explicit outline/card rebuild | Validates segment IDs/time ranges. Preserves resources and notes; retained materials show a stale-source notice. |
 | Search and connections | Includes caption text, slide text, generated materials, own notes and exact concept links | Regression tests cover discovery, correct concept matching and archived/code exclusion from the Universe. |
 | Flashcards/quizzes | Flip cards and supplied quiz JSON | Cards support keyboard access. There is no spaced-repetition schedule, persistent grading record or adaptive tutor. |
@@ -40,7 +41,7 @@ that a cloud AI service exists.
 
 ## Recommended next production increment
 
-Build one durable cloud pipeline with private recording/PDF storage, resumable
+Build one durable cloud pipeline with private recording storage, resumable
 uploads, a persistent job queue, authenticated transcription and generation calls,
 source-linked output, focused transcript review, and targeted regeneration.
 Reuse existing captions first; transcribe only when captions are unavailable.
@@ -48,4 +49,5 @@ Keep uploaded sources immutable and save versioned generated outputs separately
 from personal notes. Add scheduled recovery-tested backups, monitoring and
 real-device acceptance checks before treating the complete study pipeline as a
 production service. A provider connection and its usage budget must be configured
-before implementing or testing API-backed AI behavior.
+before implementing or testing API-backed AI behavior. Private original PDF storage
+is now implemented; recording uploads, durable jobs and GPT generation are not.

@@ -16,7 +16,7 @@ function browser(options={}){
  vm.runInContext(fs.readFileSync("web/markdown.js","utf8"),context);
  vm.runInContext(code,context,{filename:"cloud/cloud.js"});
  vm.runInContext(fs.readFileSync("cloud/panopto.js","utf8"),context,{filename:"cloud/panopto.js"});
- return {window,localStorage,sessionStorage,hooks,online,timers,saved};
+ return {window,localStorage,sessionStorage,hooks,online,timers,saved,context};
 }
 async function api(browser,method,path,body){
  const r=await browser.window.fetch("https://example.github.io"+path,{method,body:body===undefined?undefined:JSON.stringify(body)});

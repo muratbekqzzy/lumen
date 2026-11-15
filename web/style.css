@@ -611,3 +611,10 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
 .study-notice { margin: 0 0 18px; padding: 13px 16px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--accent-soft); color: var(--ink-2); font-size: 12.5px; line-height: 1.7; }
 .study-notice strong { color: var(--ink); font-weight: 500; }
 .time:disabled { cursor: default; opacity: .65; }
+.pdf-page-host { min-width: 0; }
+.pdf-slide { min-height: 180px; border: 1px solid var(--line); border-radius: 10px; padding: 6px; background: #fff; color: #514660; overflow: hidden; }
+.pdf-slide canvas { display: block; margin: 0 auto; }
+.pdf-page-status { padding: 20px 10px; font-size: 12px; }
+.pdf-original-link { display: inline-block; margin: 8px; color: #6e489e; font-size: 11px; }
+.pdf-slide .btn { color: #514660; }
+.pdf-slide [hidden] { display: none; }

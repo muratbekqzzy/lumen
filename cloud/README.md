@@ -49,8 +49,9 @@ files remain untouched.
 The Python/Mac app and its `~/Knowledge` folder are a separate library. To bring
 that library over, use the existing `tools/export_cloud.py` exporter and import its
 JSON backup. This is a one-time merged copy, not a live sync of Mac folders.
-Original recordings, original PDF files and the local Python MCP server are not
-part of browser sync. Imported lecture text, notes, captions, flashcards, sections,
+Original recordings and the local Python MCP server are not part of browser sync.
+Original PDFs from the Mac exporter must be attached separately in the browser.
+Imported lecture text, notes, captions, flashcards, sections,
 modules and their organization are synchronized.
 
 ## Privacy and backups
@@ -69,11 +70,21 @@ A library can contain up to 8 MiB in the current sync format; larger libraries
 remain saved locally and show a clear backup/export message instead of claiming
 success. Sync is not a substitute for independent backups.
 
+Original PDFs use separate private file storage: up to 20 MiB per file and 500 MiB
+or 300 files per account. The browser caches originals in account-scoped IndexedDB
+and retries pending uploads when Lumen is open online. Library snapshots contain
+small file references. JSON backups contain those references and extracted text,
+not the original PDF bytes; retain independent copies of your source files.
+Signing out waits for pending file uploads and clears that account's PDF cache.
+Replacing or deleting a lecture does not yet reclaim its old cloud PDF objects.
+
 ## Development and publication
 
 - `cloud/cloud.js`: browser adapter, local persistence, automatic synchronization.
 - `cloud/migrate.js`: validated one-time migration from the original origin.
 - `hosted/sync.mjs`: authenticated sync API and atomic D1 snapshots.
+- `hosted/files.mjs`, `web/pdf.js`: private original PDF storage and local rendering.
+- `web/tutor.js`: reusable teaching prompt and complete lecture-source hand-off.
 - `db/schema.ts`, `drizzle/`: schema and generated migrations applied during deployment.
 - `hosted/build.mjs`: bundles the existing UI and API into a hosted Worker.
 - `.openai/hosting.json`: existing Site identity and storage binding.
@@ -88,9 +99,10 @@ migration entry point after changes to `main`.
 
 1. Choose **Add lecture** in a section or the Inbox.
 2. Upload `.vtt`, `.srt` or `.txt` captions, or paste a transcript. Add a title.
-3. Optionally attach a text-based PDF and a Panopto playback link.
+3. Optionally attach a PDF and a Panopto playback link. The actual PDF pages display
+   even when the file has no selectable text; this does not perform OCR.
 4. Import, then **Review captions**. Find technical terms using the caption search.
-5. Use the draft outline and review questions, or **Copy lecture source** to work
+5. Use the draft outline and review questions, or **Copy tutor prompt + source** to work
    with an external assistant. **Add study material** saves prepared Markdown,
    Q:/A: flashcards, explanations or verified resources into the same lecture.
 
@@ -103,9 +115,12 @@ for review. Caption IDs are stable lookup keys, not array positions.
 The original source transcript is retained in the lecture. Long outlines are
 labelled excerpts. Untimed text has estimated grouping and no fabricated Panopto
 playback links. Matching text to PDF pages is approximate, not verified slide timing.
-Original PDFs and recordings are not stored by this importer. The optional PDF
-reader, chart renderer and math renderer currently require their external libraries
-when not already available in the browser.
+Original PDFs are preserved privately on the synced app and rendered by a local
+PDF.js bundle. Earlier imports kept only extracted text: use **Attach original
+PDF** in the lecture toolbar to restore their pages. Recordings are not stored by
+this importer. The chart and math renderers still use external browser libraries.
+The tutor prompt copies text only; attach the original PDF to your assistant when
+its figures matter. Prepared results can be pasted back through Add study material.
 
 Tables, fenced quizzes, plots and sandboxed widgets now render through a local
 Markdown engine. Lecture search includes captions, slide text, prepared materials
@@ -136,8 +151,8 @@ option and the website importer.
 **Current accuracy limitations:** Timed captions preserve their timestamps,
 but Panopto's common `.txt` transcript export may omit timestamps.
 Matching transcripts to slide pages is currently approximate. PDF text is
-extracted into the synced lecture record; the original PDF pages/images
-and lecture recordings are not stored by browser sync. Generated notes and
+extracted into the synced lecture record; original PDFs are stored separately,
+while lecture recordings are not uploaded. Generated notes and
 flashcards are draft, extractive study aids: they are not reviewed by an AI,
 cannot automatically correct terminology and should be checked against the
 lecture. Edits to imported lectures can have conflicts if two devices edit

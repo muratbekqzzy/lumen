@@ -33,6 +33,7 @@ function parseCaptions(raw, filename=""){
 }
 async function pdfPages(file){
  if(!file)return [];
+ if(window.LumenPDF)return window.LumenPDF.extractText(file);
  const url="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";let doc;
  try{
    const pdfjs=await import(url);pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
@@ -106,7 +107,7 @@ const d=modalShell("Add a lecture from a transcript",`<p>Upload captions or past
 <label>Or paste transcript text<textarea name="transcript" placeholder="Paste lecture captions or transcript text here"></textarea></label>
 <label>Lecture slides (PDF, optional)<input type="file" name="slides" accept="application/pdf,.pdf"></label>
 <label>Panopto recording link (optional)<input type="url" name="url" placeholder="https://…panopto…/Panopto/Pages/Viewer.aspx?id=…"></label>
-<p>Already have Panopto captions? Use Captions → Download transcript. Original recordings and PDF files are not stored by this import. Text and study records sync with your account.</p>
+<p>Already have Panopto captions? Use Captions → Download transcript. Original slides are kept in private PDF storage on the synced app. Recordings are not uploaded by this importer.</p>
 <button type="submit">Import and prepare study outline</button>
 <p id="panopto-import-status" class="lumen-panopto-message" role="status"></p></form>`);
 d.querySelector("form").onsubmit=async e=>{
@@ -116,14 +117,15 @@ d.querySelector("form").onsubmit=async e=>{
   if(captions?.size&&pasted)throw Error("Choose either a caption file or pasted text, so the source is unambiguous.");
   if(!captions?.size&&!pasted)throw Error("Choose a caption file or paste transcript text.");
   if((captions?.size||0)>5*1024*1024)throw Error("This transcript is too large for browser import (5 MiB limit).");
-  if((pdf?.size||0)>25*1024*1024)throw Error("Choose a slides PDF smaller than 25 MiB.");
+  if((pdf?.size||0)>20*1024*1024)throw Error("Choose a slides PDF smaller than 20 MiB.");
   status.textContent="Reading transcript…";const parsed=parseCaptions(pasted||await captions.text(),pasted?"Pasted transcript":captions.name);
-  status.textContent="Reading slide text…";const pages=pdf?.size?await pdfPages(pdf):[];
+  status.textContent="Reading slide text…";let pages=[];if(pdf?.size){try{pages=await pdfPages(pdf)}catch{status.textContent="Text extraction was unavailable. The original PDF will still be kept."}}
   status.textContent="Preparing draft outline and review questions…";const chunks=align(pages,parsed.segments,parsed.timed),title=String(f.get("title")||"Lecture").trim();
   const generated=makePack(title,parsed.segments,pages,chunks,parsed.timed);
   const data={parent_id:parent.id,title,panopto_url:url,segments:parsed.segments,chunks,generated,generated_source:"extractive",slide_count:pages.length,duration:Math.ceil(parsed.segments.reduce((end,x)=>Math.max(end,x.end),0)),caption_source:parsed.source,timed_captions:parsed.timed,alignment_estimated:!!pages.length,caption_reviewed:false};
   const r=await fetch("/api/lectures/from-panopto",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
   const result=await r.json();if(!r.ok)throw Error(result.detail||"Import failed");
+  if(pdf?.size&&window.LumenPDF){status.textContent="Saving the original slides…";try{const attached=await window.LumenPDF.attach(result.id,pdf,pages.length);status.textContent=attached.message}catch(error){status.textContent="The lecture was imported, but its original PDF needs attaching again: "+error.message;const open=document.createElement("button");open.type="button";open.textContent="Open imported lecture";open.onclick=()=>{d.remove();location.hash="#/lecture/"+result.id;window.dispatchEvent(new Event("lumen-remote-updated"))};form.append(open);return}}
   d.remove();location.hash="#/lecture/"+result.id;window.dispatchEvent(new Event("lumen-remote-updated"));
  }catch(err){status.textContent=err.message||String(err)}finally{submit.disabled=false}
 };
