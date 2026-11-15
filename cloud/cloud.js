@@ -103,13 +103,16 @@ function mergeStates(local,remote){
   if(current===incoming)continue;
   if(previous&&current===previous){out.records[key]=copy(r);continue}
   if(previous&&incoming===previous)continue;
-  // Both versions changed since the last confirmed sync: preserve both.
-  // Derive a stable copy ID to avoid creating repeated duplicates on retries.
-  const conflictId="conflict_"+key+"_"+incoming;
+  // Converge on the same winning version on every device, but keep the
+  // losing version as a named note or lecture. Nothing is silently discarded.
+  const winner=current>incoming?existing:r,loser=current>incoming?r:existing;
+  const loserFingerprint=current>incoming?incoming:current;
+  const conflictId="conflict_"+key+"_"+loserFingerprint;
+  out.records[key]=copy(winner);
   if(!out.records[conflictId]){
-   const duplicate=copy(r);
+   const duplicate=copy(loser);
    duplicate.id=conflictId;
-   duplicate.title=(r.title||"Untitled")+" (conflict copy)";
+   duplicate.title=(loser.title||"Untitled")+" (conflict copy)";
    duplicate.updated=now();
    out.records[conflictId]=duplicate;
   }
@@ -166,7 +169,7 @@ window.addEventListener("online",()=>sync());
 window.addEventListener("focus",()=>sync());
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)sync()});
 window.addEventListener("storage",ev=>{
- if(ev.key===DATA&&ev.newValue){try{const incoming=JSON.parse(ev.newValue);if(incoming?.records){const merged=mergeStates(db,incoming);if(JSON.stringify(merged)!==JSON.stringify(db)){db=merged;window.dispatchEvent(new Event("lumen-remote-updated"));queueSync(500)}}}catch(e){console.warn("Could not reconcile Lumen browser tabs",e)}}
+ if(ev.key===DATA&&ev.newValue){try{const incoming=JSON.parse(ev.newValue);if(incoming?.records){const merged=mergeStates(db,incoming);if(JSON.stringify(merged)!==JSON.stringify(db)){db=merged;if(JSON.stringify(merged)!==JSON.stringify(incoming))localStorage.setItem(DATA,JSON.stringify(merged));window.dispatchEvent(new Event("lumen-remote-updated"));queueSync(500)}}}catch(e){console.warn("Could not reconcile Lumen browser tabs",e)}}
 });
 setInterval(()=>{if(!document.hidden&&credentials())sync()},15000);
 
