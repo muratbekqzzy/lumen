@@ -51,7 +51,7 @@ async function attachFile(lectureId,file,pageCount){
  if(!saved&&!record.uploaded)throw uploadError||Error('Could not save this PDF. Enable browser storage or reconnect and try again.');
  const result=await updateLecture(record);record.needsLink=false;try{await cache('put',record)}catch{}window.dispatchEvent(new Event('lumen-remote-updated'));
  if(result.superseded)throw Error('The lecture’s selected PDF changed while uploading. Your new PDF was kept, but was not selected. Reopen the lecture and attach it again if needed.');
- return {id,name:record.name,size:file.size,uploaded:record.uploaded,message:record.uploaded?'Original PDF saved to your account.':uploadError?.message||'Original PDF saved on this device. It will upload when you reconnect.'};
+ return {id,name:record.name,size:file.size,uploaded:record.uploaded,message:record.uploaded?'Original PDF saved to your account.':!HOSTED?'Original PDF saved on this device only. Attach it in synced Lumen for access from other devices.':uploadError?.message||'Original PDF saved on this device. It will upload when you reconnect.'};
 }
 function flush(){return serialize(flushPending)}
 async function flushPending(){
