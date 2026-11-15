@@ -809,4 +809,12 @@ addEventListener("hashchange", () => { $(".side").classList.remove("open"); rout
 $("#menu-btn").onclick = (e) => { e.stopPropagation(); $(".side").classList.toggle("open"); };
 $("#main").addEventListener("click", () => $(".side").classList.remove("open"));
 addEventListener("focus", () => loadTree().catch(() => {}));
+let remoteRefreshNeeded=false;
+function refreshAfterSync(){
+ if(document.activeElement?.matches("textarea,input,[contenteditable=true]")) { remoteRefreshNeeded=true; return; }
+ remoteRefreshNeeded=false;
+ loadTree().then(route).catch(console.error);
+}
+addEventListener("lumen-remote-updated", refreshAfterSync);
+document.addEventListener("focusout",()=>{if(remoteRefreshNeeded)setTimeout(refreshAfterSync,150)});
 loadTree().then(route);
