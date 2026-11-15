@@ -95,6 +95,22 @@ the Sites publishing workflow; rebuilding files alone does not update production
 The GitHub Actions workflow publishes the original-address browser app and
 migration entry point after changes to `main`.
 
+### Scoped maintenance import
+
+`POST /api/maintenance/lecture-materials` is disabled by default. A hosting owner
+can temporarily provision secret `LUMEN_MATERIAL_IMPORT_TOKEN` and
+`LUMEN_MATERIAL_IMPORT_PERMIT` values for a user-authorized three-file import.
+The permit fixes one account, exact course ID/title, lecture number, batch ID,
+expiry and SHA-256 of the complete approved request. No uploaded content or
+credentials belong in source code, public assets or Git history.
+
+The authenticated operation previews the unique target before applying, commits
+all three files through the ordinary atomic revision guard, preserves unrelated
+content and stores replaced material in a private receipt. Reusing the batch does
+not overwrite later edits. Verify the saved file hashes, remove both secrets and
+redeploy immediately after the authorized import. Without a current permit and
+secret the route returns 404; ordinary library access still requires user sign-in.
+
 ## Lecture study workflow
 
 1. Choose **Add lecture** in a section or the Inbox.

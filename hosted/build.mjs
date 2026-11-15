@@ -21,6 +21,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/api/sync') return handleSync(request, env);
+    if (url.pathname === '/api/maintenance/lecture-materials') return handleMaterialImport(request, env);
     if (url.pathname.startsWith('/api/lecture-files/')) return handleLectureFiles(request, env);
     if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', {status:405});
     const asset = assets[url.pathname];

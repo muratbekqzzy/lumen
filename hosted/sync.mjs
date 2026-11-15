@@ -188,3 +188,125 @@ export async function handleSync(request, env) {
     return json({detail: "Sync is temporarily unavailable. Your changes remain saved on this device."}, 503, {"Retry-After": "5"});
   }
 }
+
+// A temporary, hosting-owner provisioned import. It is disabled without both
+// secrets. The permit fixes one account, course, lecture number and exact body
+// hash; uploaded course content never becomes a public source/build asset.
+async function importHash(bytes) {
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+const importTextHash = text => importHash(new TextEncoder().encode(text));
+const importActive = (state, node) => node &&
+  (state.deleted[node.id] === undefined || node.updated > state.deleted[node.id]);
+
+async function importPayload(request, expectedHash) {
+  if (!(request.headers.get('Content-Type') || '').startsWith('application/json'))
+    throw new APIError(415, 'The import must contain JSON.');
+  if (!request.body) throw new APIError(400, 'The import is empty.');
+  const reader = request.body.getReader(), parts = []; let length = 0;
+  try {
+    for (;;) {
+      const {value, done} = await reader.read(); if (done) break;
+      length += value.byteLength;
+      if (length > 1024 * 1024) { await reader.cancel(); throw new APIError(413, 'The import is too large.'); }
+      parts.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(length); let offset = 0;
+  for (const part of parts) { bytes.set(part, offset); offset += part.byteLength; }
+  if (await importHash(bytes) !== expectedHash)
+    throw new APIError(403, 'These files do not match the approved import.');
+  let body;
+  try { body = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes)); }
+  catch { throw new APIError(400, 'The import is not valid JSON.'); }
+  const files = ['study-pack.md', 'flashcards.md', 'explanation.md'];
+  if (!object(body) || Object.keys(body).length !== 1 || !object(body.materials) ||
+      Object.keys(body.materials).length !== files.length ||
+      files.some(name => typeof body.materials[name] !== 'string' || !body.materials[name].trim()))
+    throw new APIError(400, 'Supply exactly the study pack, flashcards and explanation.');
+  return body.materials;
+}
+
+function importTarget(state, permit) {
+  const course = state.records[permit.courseId];
+  if (!importActive(state, course) || course.kind !== 'module' || course.title !== permit.courseTitle)
+    throw new APIError(409, 'The approved course could not be verified.');
+  const insideCourse = node => {
+    const seen = new Set();
+    for (let parent = state.records[node.parent]; parent && !seen.has(parent.id); parent = state.records[parent.parent]) {
+      if (parent.id === course.id) return true;
+      if (parent.id === 'archive' || !importActive(state, parent)) return false;
+      seen.add(parent.id);
+    }
+    return false;
+  };
+  const candidates = Object.values(state.records).filter(node =>
+    node.kind === 'lecture' && importActive(state, node) && insideCourse(node));
+  const matches = candidates.filter(node => {
+    const title = node.title.normalize('NFKC').trim();
+    const match = /^(?:lecture|lec|l)\s*0*(\d+)\b/i.exec(title) || /^0*(\d+)(?:\s*[-:.)]|$)/.exec(title);
+    return match && Number(match[1]) === permit.lectureNumber;
+  });
+  if (matches.length !== 1) throw new APIError(409,
+    'Expected exactly one matching lecture in the approved course; found ' + matches.length + '.');
+  return {course, lecture:matches[0]};
+}
+
+export async function handleMaterialImport(request, env) {
+  try {
+    if (!env.LUMEN_MATERIAL_IMPORT_TOKEN || !env.LUMEN_MATERIAL_IMPORT_PERMIT)
+      return json({detail:'Not found.'},404);
+    let permit; try { permit = JSON.parse(env.LUMEN_MATERIAL_IMPORT_PERMIT); } catch { return json({detail:'Import unavailable.'},503); }
+    if (!permit || typeof permit.owner !== 'string' || !permit.owner || permit.owner.length > 512 ||
+        !ID.test(permit.courseId) || typeof permit.courseTitle !== 'string' ||
+        !Number.isInteger(permit.lectureNumber) || permit.lectureNumber < 1 ||
+        !/^[a-f0-9]{32}$/.test(permit.batchId) || !/^[a-f0-9]{64}$/.test(permit.bodySHA256) ||
+        !Number.isSafeInteger(permit.expiresAt) || Date.now() >= permit.expiresAt)
+      return json({detail:'Import permit unavailable or expired.'},404);
+    const expected = 'Bearer ' + env.LUMEN_MATERIAL_IMPORT_TOKEN, supplied = request.headers.get('Authorization') || '';
+    let difference = expected.length ^ supplied.length;
+    for (let i = 0; i < expected.length; i++) difference |= expected.charCodeAt(i) ^ (supplied.charCodeAt(i) || 0);
+    if (difference || env.LUMEN_MATERIAL_IMPORT_TOKEN.length < 32) return json({detail:'Not found.'},404);
+    const origin = request.headers.get('Origin');
+    if ((origin && origin !== new URL(request.url).origin) || request.headers.get('Sec-Fetch-Site') === 'cross-site')
+      throw new APIError(403,'Cross-origin imports are not allowed.');
+    if (request.method !== 'POST') return json({detail:'Use POST.'},405);
+    if (!env.DB) throw new APIError(503,'Import storage is unavailable.');
+    const action = request.headers.get('X-Lumen-Import-Action');
+    if (!['preview','apply','verify'].includes(action)) throw new APIError(400,'Choose preview, apply or verify.');
+    const materials = await importPayload(request,permit.bodySHA256);
+    const hashes = Object.fromEntries(await Promise.all(Object.entries(materials).map(async([name,text]) => [name,await importTextHash(text)])));
+    const explanationFile = 'explain-import-' + permit.batchId + '.md';
+    const mapping = {'study-pack.md':'study-pack.md','flashcards.md':'flashcards.md','explanation.md':explanationFile};
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const snapshot = await readSnapshot(env.DB,permit.owner);
+      if (!snapshot.state) throw new APIError(409,'The approved library is empty.');
+      const state = validateState(snapshot.state), {course,lecture} = importTarget(state,permit);
+      const receipt = lecture.material_imports?.find(entry => entry.batch_id === permit.batchId);
+      const files = await Promise.all(Object.entries(materials).map(async([name,text]) => ({
+        name, saved_as:mapping[name], bytes:new TextEncoder().encode(text).byteLength, sha256:hashes[name],
+        matches:await importTextHash(lecture.generated?.[mapping[name]] || '') === hashes[name],
+      })));
+      const summary = {batch_id:permit.batchId,course:{id:course.id,title:course.title},
+        lecture:{id:lecture.id,title:lecture.title},revision:snapshot.revision,files};
+      if (action === 'preview') return json({...summary,mode:'preview',already_applied:!!receipt});
+      if (action === 'verify' || receipt) return json({...summary,mode:action,already_applied:!!receipt,
+        verified:!!receipt && receipt.body_sha256 === permit.bodySHA256 && files.every(file => file.matches)});
+      const previous = Object.fromEntries(Object.values(mapping).map(name => [name,lecture.generated?.[name] ?? null]));
+      lecture.generated = {...lecture.generated,...Object.fromEntries(Object.entries(materials).map(([name,text]) => [mapping[name],text]))};
+      lecture.material_imports = [...(lecture.material_imports || []),{batch_id:permit.batchId,
+        body_sha256:permit.bodySHA256,at:Date.now(),files:hashes,previous_materials:previous}];
+      lecture.generated_source = 'prepared'; lecture.materials_stale = false; lecture.status = 'complete';
+      lecture.updated = Math.max(Date.now(),lecture.updated + 1);
+      try {
+        const revision = await writeSnapshot(env.DB,permit.owner,snapshot.revision,validateState(state));
+        return json({...summary,mode:'apply',revision,already_applied:false,verified:true,files:files.map(file => ({...file,matches:true}))});
+      } catch (error) { if (error.status !== 409 || attempt === 2) throw error; }
+    }
+  } catch (error) {
+    if (error instanceof APIError) return json({detail:error.message},error.status);
+    console.error('Lumen material import storage failure');
+    return json({detail:'The import could not be completed. No success was confirmed.'},503);
+  }
+}
