@@ -45,30 +45,22 @@ float fbm(vec2 p){
 }
 void main(){
   vec2 uv = gl_FragCoord.xy / uRes;
-  vec2 p = (uv - .5) * vec2(uRes.x / uRes.y, 1.) * 1.3 + uPointer * .05;
+  vec2 p = vec2(uv.x * uRes.x / uRes.y, uv.y) * 1.3 + uPointer * .05;
   float t = uTime;
-  // Broad, overlapping light volumes drift independently, with no reflective ridges.
-  vec2 driftA = vec2(sin(t*.026), cos(t*.022)) * .13;
-  vec2 driftB = vec2(cos(t*.019 + 2.3), sin(t*.024 + 1.2)) * .15;
-  vec2 q = vec2(fbm(p*.9 + driftA), fbm(p*.9 + vec2(5.2, 1.3) + driftB));
-  vec2 r = vec2(fbm(p + .72*(q-.5) + vec2(1.7, 9.2) + driftB), fbm(p + .72*(q-.5) + vec2(8.3, 2.8) + driftA));
-  float f = fbm(p*.85 + .65*(r-.5) + vec2(t*.009, -t*.012));
-  f = clamp((f-.48)*1.6 + .48, 0., 1.);
-  vec2 haze = uv + (q-.5)*.10 + uPointer*.015;
-  vec2 a = (haze - vec2(.27 + .09*sin(t*.023), .42 + .10*cos(t*.018))) / vec2(.52, .60);
-  vec2 b = (haze - vec2(.73 + .10*cos(t*.017 + 1.7), .60 + .11*sin(t*.021))) / vec2(.58, .54);
-  float lightA = exp(-dot(a,a)*1.6), lightB = exp(-dot(b,b)*1.6);
-  float veil = clamp(.16 + .46*f + .32*max(lightA,lightB), 0., 1.);
-  float radiance = (.36*lightA + .40*lightB) * (.70 + .30*smoothstep(.26,.76,f)) * (.94 + .06*sin(t*.065));
-  float warm = clamp(smoothstep(.32,.68,r.y)*.60 + lightA*.40, 0., 1.);
-  float cool = clamp(smoothstep(.32,.68,r.x)*.60 + lightB*.40, 0., 1.);
+  // Silk: the field is bent through itself twice, so light gathers into slow ribbons.
+  vec2 q = vec2(fbm(p + vec2(0., t*.045)), fbm(p + vec2(5.2, 1.3) + vec2(-t*.035, t*.012)));
+  vec2 r = vec2(fbm(p + 3.4*q + vec2(1.7, 9.2) + t*.028), fbm(p + 3.4*q + vec2(8.3, 2.8) - t*.022));
+  float f = fbm(p + 3.0*r);
+  float veil = smoothstep(.36, .84, f + .45*(r.x - .45));
+  float vein = pow(clamp(1. - abs(2.*fbm(p*1.15 + 2.6*r + vec2(3.1, 7.7)) - .95)*1.7, 0., 1.), 4.);
+  float warm = smoothstep(.40, .62, r.y), cool = smoothstep(.40, .62, r.x);
 
   // Space: deep indigo with periwinkle, orchid and cream light.
   vec3 cs = mix(vec3(.035,.035,.098), vec3(.082,.070,.205), uv.y*.7 + .3*q.y);
   cs = mix(cs, vec3(.215,.200,.520), veil*.62);
   cs = mix(cs, vec3(.455,.560,.860), cool*veil*.54);
   cs = mix(cs, vec3(.860,.520,.760), warm*veil*.50);
-  cs += vec3(1.,.940,.860) * radiance * veil * .34;
+  cs += vec3(1.,.940,.860) * vein * veil * .34;
   cs *= 1. - .34*pow(length(uv - .5)*1.25, 2.);
 
   // Sky: blush and pale blue with lilac shade and white cloud-light.
@@ -76,7 +68,7 @@ void main(){
   ck = mix(ck, vec3(.655,.790,.905), cool*.55);
   ck = mix(ck, vec3(.845,.600,.810), warm*veil*.60);
   ck = mix(ck, vec3(.600,.560,.800), smoothstep(.50,.80,f)*.34);
-  ck = mix(ck, vec3(1.,.992,.985), clamp(radiance*.6 + smoothstep(.62,.9,veil)*.30, 0., 1.));
+  ck = mix(ck, vec3(1.,.992,.985), clamp(vein*.6 + smoothstep(.62,.9,veil)*.30, 0., 1.));
 
   vec3 col = mix(cs, ck, uSky);
   col += (hash(gl_FragCoord.xy) - .5) * (2./255.);   // dither: no banding in the dark
