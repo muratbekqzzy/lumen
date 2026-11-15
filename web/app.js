@@ -324,6 +324,7 @@ function noteDialog(parent) {
     async (f) => { const r = await api("POST", "/api/notes", { parent_id: parent.id, title: f.title.value, body: "" }); await loadTree(); go(`#/note/${r.id}?edit`); });
 }
 function lectureDialog(parent) {
+  if (window.LumenPanopto) return window.LumenPanopto.open(parent);
   dialog(`<h3>Add a lecture${parent.kind !== "inbox" ? ` to “${h(parent.title)}”` : ""}</h3>
     <p style="font-size:14px;color:var(--muted)">From Panopto, the easiest way is to give the link to Claude in this desktop app, which fetches the recording and slide timings for you. Or upload a recording here.</p>
     <label>Title</label><input type="text" name="title" required placeholder="e.g. Lecture 04 – Data screening">
@@ -618,6 +619,7 @@ async function pageLecture(id, tab) {
       ${m.slide_count ? `<span>${m.slide_count} slides</span>` : ""}
       <span class="chip ${m.status === "complete" ? "ok" : busy ? "warn" : ""}">${statusLabel(m) || "New"}</span>
       ${m.panopto_url ? `<a class="btn ghost" href="${h(m.panopto_url)}" target="_blank" rel="noopener">Open in Panopto ${ICONS.ext}</a>` : ""}
+      ${window.LumenPanopto && m.source === "panopto-captions" ? `<button class="btn ghost" id="edit-captions">Review captions</button>` : ""}
       <button class="icon-btn" id="lmore">${ICONS.more}</button>
     </div>
     ${busy ? `<div class="empty"><h3>Transcribing on your Mac…</h3><p>Whisper is listening to the recording. A 45-minute lecture takes roughly 5 to 10 minutes. This page updates itself.</p></div>` : `
@@ -626,6 +628,7 @@ async function pageLecture(id, tab) {
   </div>${d.has_audio && !busy ? `<div class="player"><audio id="aud" controls preload="metadata" src="/api/lectures/${id}/audio"></audio><span class="now-t" id="nowt"></span></div>` : ""}`;
   $("#ttl").onclick = () => renameDialog(NODES.get(id) || { id, title: m.title });
   $("#lmore").onclick = (e) => openMenu(e, NODES.get(id) || { id, title: m.title, kind: "lecture" });
+  if ($("#edit-captions")) $("#edit-captions").onclick = () => window.LumenPanopto.edit(id);
   if (busy) { poll = setInterval(async () => { const j = await api("GET", "/api/lectures/" + id); if (!["processing", "queued", "transcribing"].includes(j.meta.status)) { clearInterval(poll); await refresh(); } }, 5000); return; }
   $$(".tab").forEach((b) => b.onclick = () => { history.replaceState(null, "", `#/lecture/${id}/${b.dataset.t}`); pageLectureTab(id, b.dataset.t); });
   pageLectureTab(id, tab);
@@ -667,10 +670,10 @@ function renderCards(md) {
 function renderSlides(body, id) {
   const d = LECTURE;
   if (!d.chunks.length) { body.innerHTML = `<div class="empty"><h3>No transcript yet</h3></div>`; return; }
-  body.innerHTML = `<p style="color:var(--muted);margin-top:-8px">Each slide sits next to what was said while it was on screen. Click a time or any sentence to listen from that moment${d.meta.panopto_url ? ", or ↗ to open Panopto there" : ""}.</p>
+  body.innerHTML = `<p style="color:var(--muted);margin-top:-8px">${window.LumenPanopto ? "Caption text is grouped with slide text. Slide timing is estimated, not verified against Panopto slide events. Select Review captions to correct mistakes." : `Each slide sits next to what was said while it was on screen. Click a time or any sentence to listen from that moment${d.meta.panopto_url ? ", or ↗ to open Panopto there" : ""}.`}</p>
   <div class="slides">${d.chunks.map((c) => `
     <div class="chunk" id="chunk-${c.n}" data-start="${c.start}" data-end="${c.end}">
-      <div>${c.page ? `<img loading="lazy" src="/api/lectures/${id}/slides/${c.page}.png" alt="Slide ${c.page}">`
+      <div>${c.page ? (window.LumenPanopto ? `<div class="ghost-slide"><div><b>${h(c.title)}</b><p>${h((c.slide_text || "").slice(0,500))}</p></div></div>` : `<img loading="lazy" src="/api/lectures/${id}/slides/${c.page}.png" alt="Slide ${c.page}">`)
         : `<div class="ghost-slide"><div><b>${h(c.title)}</b>${c.not_in_pdf ? "Shown in the lecture, but not in your PDF slides" : "Before the slides"}</div></div>`}</div>
       <div><div class="head"><span class="t">${c.page ? `<span style="color:var(--muted);font-weight:400">${c.page}.</span> ` : ""}${h(c.title)}</span>
         <button class="time" data-seek="${c.start}">${ICONS.play} ${c.time}</button>${c.link ? `<a class="time" href="${h(c.link)}" target="_blank" rel="noopener" title="Open in Panopto at this moment">↗</a>` : ""}</div>
