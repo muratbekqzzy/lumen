@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<script>try { if (JSON.parse(localStorage.getItem("lumen.theme")) === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lumen</title>
+  <link rel="icon" href="web/icon.svg">
+  <link rel="apple-touch-icon" href="web/icon.svg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#07080a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="web/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand"><span class="mark"></span>Lumen</div>
+      <div class="searchbox">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Search everything" autocomplete="off">
+        <kbd>⌘K</kbd>
+      </div>
+      <div class="nav-scroll">
+        <div class="nav" id="nav-top"></div>
+        <div class="nav-label"><span>Sections</span><button class="icon-btn" id="add-section" title="New section">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+        <div class="nav" id="tree"></div>
+      </div>
+      <div class="side-foot" id="nav-foot"></div>
+    </aside>
+    <button class="icon-btn menu-btn" id="menu-btn" aria-label="Open navigation">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <main class="main" id="main"></main>
+  </div>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+  <script defer src="cloud/cloud.js"></script>
+  <script type="module" src="web/app.js"></script>
+  <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
+</body>
+</html>
