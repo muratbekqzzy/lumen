@@ -2,9 +2,9 @@
 
 A personal knowledge universe for lifelong learning.
 
-Lumen keeps everything you learn in one place that you organise yourself, shows how it all
-connects as an interactive graph, turns recorded lectures into study material, and lets any
-AI assistant read from and add to it through the Model Context Protocol (MCP).
+Lumen keeps prepared learning material in one organised, synced library. Import a
+single Markdown file, read its explanations and interactive visuals, optionally add
+original slides, and keep your own notes alongside it.
 
 ## What it does
 
@@ -12,8 +12,9 @@ AI assistant read from and add to it through the Model Context Protocol (MCP).
   concepts are stars, and shared concepts bridge your subjects. Tap a star to see its connections.
 - **Your structure.** Sections › modules › lectures and notes, in one folder tree. Create, rename,
   reorder, drag, move and archive. Every change is versioned and can be undone.
-- **Lecture pipeline.** A recording plus slides becomes a slide-by-slide transcript (transcribed on
-  your own Mac with Whisper), a study pack, flashcards and further resources.
+- **Markdown import.** One prepared file creates or updates the correct section,
+  module and lecture. No recording, transcript or PDF is required. Lecture, Slides
+  and Notes are the three reading views; existing notes and sources are preserved.
 - **Rich study material.** Maths, interactive charts, interactive explainers and
   "check your understanding" quizzes render inside notes.
 - **Concepts.** Write `[[Concept]]` anywhere, Obsidian-style. Each concept gets its own page and
@@ -33,19 +34,18 @@ The vault is readable without Lumen. Each lecture keeps `Source/` (originals, ne
 `Generated/` (AI study material, can be regenerated) and `My Notes/` (yours, never overwritten by AI).
 Your vault is **not** part of this repository.
 
-## Study workflow status
+## Study workflow
 
-The hosted app imports captions or pasted transcripts and prepares labelled,
-extractive study outlines. It does not yet transcribe uploaded recordings or call
-an AI generator. Prepared assistant output can be saved into a lecture with **Add
-study material**. **Copy tutor prompt + source** provides a reusable teaching prompt
-for concept synthesis, worked examples, useful cards, interactive explorations and
-quizzes. This is an explicit hand-off to your assistant; it does not run GPT in the app.
-Original slide PDFs now render locally and sync through private account storage
-(20 MiB per file). Earlier text-only imports need their original PDFs reattached.
-Local Whisper transcription and the MCP connector belong to the
-separate Mac app. See the [study-workflow audit](docs/STUDY_WORKFLOW_AUDIT.md) for
-verified behavior, repairs and remaining production work.
+Choose **Import Markdown**. A short destination header identifies the section,
+module and lecture; **Get a template** supplies the format. Files without a header
+can use the current lecture or a destination you choose. Lumen renders prepared
+explanations, images, maths, charts, widgets and quizzes directly. It does not call
+an AI generator, transcribe a recording or generate flashcards during import.
+
+Slides are optional, with private storage and local rendering (20 MiB per PDF).
+The **Notes** view keeps your own writing and manually added practice questions.
+See the [one-file import guide](docs/MARKDOWN_IMPORT.md) for the format and limits.
+The Python/Mac transcription and MCP tools documented below remain separate.
 
 ## Open it without installing anything
 

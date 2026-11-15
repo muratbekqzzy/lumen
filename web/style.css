@@ -618,3 +618,55 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
 .pdf-original-link { display: inline-block; margin: 8px; color: #6e489e; font-size: 11px; }
 .pdf-slide .btn { color: #514660; }
 .pdf-slide [hidden] { display: none; }
+.import-launch { margin: 0 18px 14px; justify-content: center; border-color: var(--line-2); background: var(--accent-soft); color: var(--ink); }
+.import-launch:hover { border-color: var(--accent); }
+.import-dialog { position: relative; width: min(560px,100%); padding: 30px; }
+.import-dialog h2 { margin: 0 0 10px; font: 500 29px var(--serif); letter-spacing: -.025em; }
+.import-close { position: absolute; right: 14px; top: 12px; font-size: 22px; }
+.import-dialog .import-drop { position: relative; display: grid; gap: 8px; text-align: center; padding: 28px 18px; margin: 22px 0 12px; border: 1px dashed var(--line-2); border-radius: 14px; background: var(--hover); color: var(--ink); cursor: pointer; }
+.import-drop input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.import-drop.over, .import-drop:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.import-drop span { font-size: 14px; overflow-wrap: anywhere; }
+.import-drop small, .import-help { color: var(--muted); font-size: 11px; line-height: 1.7; }
+.import-destination { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.import-destination > label:nth-of-type(3), .import-summary { grid-column: 1/-1; }
+.import-destination input, .import-destination select { margin-top: 7px; color: var(--ink); }
+.import-summary { padding: 13px 14px; margin-top: 14px; border-radius: 10px; font-size: 12px; line-height: 1.7; background: var(--accent-soft); color: var(--ink-2); overflow-wrap: anywhere; }
+.import-summary:empty, .import-error:empty { display: none; }
+.import-dialog .import-error { color: var(--danger); font-size: 12px; margin: 14px 0; }
+.import-dialog .import-help { display: block; margin-top: 16px; }
+.markdown-import [hidden] { display: none; }
+.lecture-heading { display: flex; gap: 18px; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+.lecture-heading .title { margin-bottom: 0; max-width: 780px; }
+.lecture-actions { display: flex; gap: 5px; flex-shrink: 0; padding-top: 3px; }
+.lecture-page .tabs { gap: 18px; margin-bottom: 30px; }
+.lecture-page .tab { padding: 12px 3px; }
+.lecture-prose { max-width: 78ch; margin: 0 auto; }
+.lecture-prose h2, .lecture-prose h3 { scroll-margin-top: 28px; }
+.prose img { display: block; max-width: 100%; height: auto; border-radius: 12px; margin: 20px 0; }
+.lesson-outline { max-width: 78ch; margin: 0 auto 26px; padding: 13px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--hover); color: var(--muted); font-size: 12px; }
+.lesson-outline summary, .lesson-practice summary, .source-wording summary, .practice-question summary { cursor: pointer; line-height: 1.65; }
+.lesson-outline nav { display: grid; gap: 3px; margin-top: 10px; }
+.lesson-outline button { text-align: left; background: transparent; border: 0; color: var(--ink-2); font-size: 12px; line-height: 1.6; padding: 6px 0; cursor: pointer; }
+.lesson-outline .outline-sub { padding-left: 14px; color: var(--muted); }
+.lesson-outline button:hover { color: var(--accent); }
+.lesson-supplement { border-top: 1px solid var(--line); margin-top: 42px; padding-top: 10px; }
+.lesson-practice, .practice-question { max-width: 78ch; margin: 24px auto; padding: 16px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink-2); }
+.lesson-practice > div, .practice-question > div { margin-top: 16px; line-height: 1.75; }
+.slides-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin: 0 0 20px; }
+.slides-toolbar p { color: var(--muted); font-size: 12px; margin: 0; }
+.slide-title { color: var(--ink); font: 500 19px/1.4 var(--serif); margin: 2px 0 14px; }
+.slide-explanation { font-size: 14px; }
+.chunk.slide-text-only { display: block; max-width: 78ch; width: 100%; margin: 0 auto; }
+.import-match { display: block; text-align: left; white-space: normal; margin: 7px 0; }
+.slide-source-note { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 0 0 20px; }
+.source-wording { color: var(--muted); font-size: 12px; }
+.source-wording .prose { font-size: 13px; margin-top: 14px; }
+@media(max-width:700px) {
+ .lecture-heading { flex-direction: column; gap: 10px; }
+ .lecture-actions { align-self: flex-end; }
+ .import-dialog { padding: 24px 20px; }
+ .import-destination { grid-template-columns: 1fr; }
+ .import-destination > label, .import-summary { grid-column: 1; }
+ .slides-toolbar { align-items: flex-start; }
+}

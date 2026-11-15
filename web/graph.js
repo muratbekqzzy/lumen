@@ -85,12 +85,12 @@ export function mountGraph(host, data, opts = {}) {
   }
   const view = { x: 0, y: 0, k: 1 }, target = { x: 0, y: 0, k: 1 };
   let userMoved = false, hover = null, selected = focusId ? byId.get(focusId) : null, dragging = null, query = "", hudT = 0, hudFor = selected;
-  const filter = { concepts: true, structure: true };
+  const filter = { concepts: opts.concepts ?? Boolean(focusId && byId.get(focusId)?.kind === "concept"), structure: true };
   const shown = n => n.kind === "concept" ? filter.concepts : filter.structure || n.kind === "lecture" || n.kind === "note";
   const toWorld = (x, y) => ({ x: (x - W / 2 - view.x) / view.k, y: (y - H / 2 - view.y) / view.k });
   function wake() { needsDraw = true; if (!destroyed && !document.hidden && raf === null) raf = requestAnimationFrame(frame); }
   function fit(instant = false) {
-    const points = focusId ? nodes.filter(n => n.id === focusId || nbrs.get(focusId)?.has(n.id)) : nodes;
+    const points = (focusId ? nodes.filter(n => n.id === focusId || nbrs.get(focusId)?.has(n.id)) : nodes).filter(shown);
     if (!points.length || W < 1 || H < 1) return;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const n of points) { x0 = Math.min(x0, n.x - n.r); y0 = Math.min(y0, n.y - n.r); x1 = Math.max(x1, n.x + n.r); y1 = Math.max(y1, n.y + n.r); }
@@ -253,9 +253,6 @@ export function mountGraph(host, data, opts = {}) {
       const color = colorOf({ galaxy: g.id }), dim = active && active.galaxy !== g.id ? .32 : 1, spin = (reduceMotion ? 0 : t * .000037) + g.spin;
       ring(g.cx, g.cy, g.rad, rgba(color, .12 * dim)); ring(g.cx, g.cy, g.rad + 7 / view.k, rgba(color, .20 * dim), 1, [1.5 / view.k, 8 / view.k], spin, spin + Math.PI * .7);
       ring(g.cx, g.cy, g.rad + 7 / view.k, rgba(color, .4 * dim), 1, [], spin + Math.PI * 1.15, spin + Math.PI * 1.3);
-      const lr = g.rad + 15 / view.k, lx = g.cx + Math.cos(-2.35) * lr, ly = g.cy + Math.sin(-2.35) * lr;
-      text(g.title.toUpperCase(), lx, ly, { font: MONO, size: 9, color: rgba(color, .84 * dim), align: "right", spacing: 1.4 });
-      text(`${g.n} STARS`, lx, ly + 13 / view.k, { font: MONO, size: 8, color: rgba(palette.muted, .8 * dim), align: "right", spacing: 1 });
     }
     ctx.globalCompositeOperation = sky ? "source-over" : "lighter";
     for (const l of links) {
@@ -297,15 +294,21 @@ export function mountGraph(host, data, opts = {}) {
         text(`${n.kind.toUpperCase()} · ${nbrs.get(n.id).size} LINKS`, lx + direction * 6 / view.k, ly + 12 / view.k, { font: MONO, size: 8, color: rgba(color, .9), align: direction < 0 ? "right" : "left", spacing: .8 });
       }
     }
-    for (const n of nodes) {
+    // A few collision-free landmarks; individual names appear on hover, tap or search.
+    const candidates = [...new Set([...(hover ? [hover] : []), ...nodes.filter(n => q ? n.title.toLowerCase().includes(q) : n.kind === "section"), ...(!q && !mini && view.k > 1.8 ? nodes.filter(n => n.kind === "module") : [])])];
+    const occupied = [], labelLimit = mini ? 2 : W < 600 ? 3 : 5;
+    for (const n of candidates) {
+      if (occupied.length >= labelLimit) break;
       if (n.vis < .35 || n === selected) continue;
-      const big = ["section", "module", "lecture"].includes(n.kind);
-      const show = mini ? n.kind === "section" : lit ? lit.has(n.id) : q ? n.title.toLowerCase().includes(q) : big ? view.k > .45 : view.k > (W < 600 ? 1.9 : 1.15);
-      if (!show) continue;
-      const x = n.x + n.dx, y = n.y + n.dy, offset = Math.max(n.r * 2, 6 / view.k) + 4 / view.k;
-      ctx.globalAlpha = n.vis;
-      if (n.kind === "section") text(n.title.toUpperCase(), x, y + offset, { font: MONO, size: 9.5, weight: 500, color: rgba(colorOf(n), .95), align: "center", base: "top", spacing: 1.2 });
-      else { const left = !big && x < (galaxies.get(n.galaxy)?.cx || 0) - 4; text(n.title.length > 34 ? n.title.slice(0, 32) + "…" : n.title, x + (left ? -offset : offset), y, { size: big ? 11 : 10, weight: big ? 500 : 400, align: left ? "right" : "left", color: rgba(big ? palette.ink : palette.muted, .95) }); }
+      const x = n.x + n.dx, y = n.y + n.dy, sx = x * view.k + W / 2 + view.x, sy = y * view.k + H / 2 + view.y;
+      if (sx < 12 || sx > W - 12 || sy < (mini ? 12 : 95) || sy > H - (mini ? 24 : 85)) continue;
+      const title = n.title.length > 27 ? n.title.slice(0, 25) + "…" : n.title;
+      const width = Math.min(W - 24, title.length * 6.4 + 12), left = clamp(sx - width / 2, 12, Math.max(12, W - width - 12)), top = sy + 13;
+      const box = {left, right:left + width, top, bottom:top + 23};
+      if (occupied.some(r => box.left < r.right + 10 && box.right > r.left - 10 && box.top < r.bottom + 7 && box.bottom > r.top - 7)) continue;
+      if (selected && Math.hypot((selected.x + selected.dx - x) * view.k, (selected.y + selected.dy - y) * view.k) < 155) continue;
+      occupied.push(box);ctx.globalAlpha = n.vis;
+      text(title, (left + width / 2 - W / 2 - view.x) / view.k, (top - H / 2 - view.y) / view.k, {size:n === hover ? 11 : 10,weight:500,color:rgba(n.kind === "section" ? colorOf(n) : palette.ink,.9),align:"center",base:"top"});
     }
     ctx.globalAlpha = 1;
     const movingView = Math.abs(target.x - view.x) + Math.abs(target.y - view.y) + Math.abs(target.k - view.k) > .02;
@@ -318,7 +321,7 @@ export function mountGraph(host, data, opts = {}) {
   return {
     setFilter(f) { Object.assign(filter, f); if (selected && !shown(selected)) select(null); wake(); },
     setQuery(s) { query = String(s || ""); wake(); },
-    focus(id) { const n = byId.get(id); if (!n) return; select(n); const k = Math.max(target.k, 1.6); Object.assign(target, { k, x: -n.x * k, y: -n.y * k }); userMoved = true; wake(); },
+    focus(id) { const n = byId.get(id); if (!n) return; if(n.kind === "concept")filter.concepts = true; select(n); const k = Math.max(target.k, 1.6); Object.assign(target, { k, x: -n.x * k, y: -n.y * k }); userMoved = true; wake(); },
     clear() { select(null); },
     fit() { userMoved = false; fit(); },
     destroy() { if (destroyed) return; destroyed = true; if (raf !== null) cancelAnimationFrame(raf); raf = null; sim.on("tick.lumen", null).on("end.lumen", null).stop(); releaseDrag(); ro.disconnect(); cleanups.forEach(fn => fn()); canvas.remove(); },

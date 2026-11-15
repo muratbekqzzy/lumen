@@ -134,10 +134,27 @@ test('slides view renders all original PDF pages, including pages without aligne
  app.context.window.LumenCloud={};app.context.window.LumenPDF={mountPage:(host,source,page)=>mounted.push({source,page})};
  const body={innerHTML:'',querySelectorAll(selector){return selector==='[data-pdf-page]'?[1,2,3].map(page=>({dataset:{pdfPage:String(page)}})):[]}};
  app.context.pdfBody=body;app.run('LECTURE='+JSON.stringify({meta:{source_pdf:file,slide_count:3},chunks:[{n:1,page:1,title:'Opening',said:[{text:'Evidence',start:0,id:0}]}]}));app.run('renderSlides(pdfBody,"lecture")');
- assert.deepEqual(mounted.map(x=>x.page),[1,2,3]);assert.equal((body.innerHTML.match(/data-pdf-page=/g)||[]).length,3);assert.match(body.innerHTML,/No transcript has been assigned/);assert.doesNotMatch(body.innerHTML,/ghost-slide/);
+ assert.deepEqual(mounted.map(x=>x.page),[1,2,3]);assert.equal((body.innerHTML.match(/data-pdf-page=/g)||[]).length,3);assert.match(body.innerHTML,/No prepared explanation/);assert.match(body.innerHTML,/<details class="source-wording">/);assert.doesNotMatch(body.innerHTML,/ghost-slide/);
 });
 test('older text-only imports explicitly request reattaching the original PDF',()=>{
  const app=interfaceApp();app.context.window.LumenCloud={};app.context.window.LumenPanopto={};app.context.window.LumenPDF={};
  const body={innerHTML:'',querySelectorAll(){return []}};app.context.pdfBody=body;app.run('LECTURE='+JSON.stringify({meta:{},chunks:[{n:1,page:1,title:'Text only',said:[]}]}));app.run('renderSlides(pdfBody,"lecture")');
- assert.match(body.innerHTML,/Earlier imports kept text only/);assert.match(body.innerHTML,/Attach original PDF/);
+ assert.match(body.innerHTML,/Earlier text-only imports/);assert.match(body.innerHTML,/Add slides/);
+});
+test('the lecture reader has three views and never mounts the old cards or resource navigation',async()=>{
+ const lecture={meta:{id:'l',title:'Lecture 01',status:'complete'},breadcrumbs:[],chunks:[],generated:{},generated_html:{'study-pack.md':'<h2>Understand the experiment</h2><p>A worked example.</p>','flashcards.md':'OLD CARDS','resources.md':'OLD RESOURCES','explain-one.md':'<p>A useful explanation.</p>'},my_notes:''};
+ const app=interfaceApp({request:()=>lecture});app.context.window.LumenCloud={};await app.run('pageLecture("l","cards")');
+ const html=app.elements.get('main').innerHTML;assert.equal((html.match(/role="tab"/g)||[]).length,3);
+ for(const title of ['Lecture','Slides','Notes'])assert(html.includes('>'+title+'</button>'));
+ for(const old of ['Flashcards','Further resources','Copy tutor','Replace original PDF','Review captions','Add study material'])assert(!html.includes(old));
+ const reading=app.elements.get('tabbody').innerHTML;assert(reading.includes('A worked example')&&reading.includes('A useful explanation'));assert(!reading.includes('OLD CARDS')&&!reading.includes('OLD RESOURCES'));
+});
+test('Markdown imports show their consolidated material without appending stale standalone explanations',async()=>{
+ const lecture={meta:{id:'l',title:'Lecture',status:'complete',lesson_source:'markdown'},breadcrumbs:[],chunks:[],generated:{},generated_html:{'study-pack.md':'<p>New complete material.</p>','explain-old.md':'Outdated explanation'},my_notes:''};
+ const app=interfaceApp({request:()=>lecture});await app.run('pageLecture("l")');assert(app.elements.get('tabbody').innerHTML.includes('New complete material'));assert(!app.elements.get('tabbody').innerHTML.includes('Outdated explanation'));
+});
+test('prepared manual Q&A renders a keyboard-accessible answer reveal with escaped content',async()=>{
+ const app=interfaceApp();let rendered;
+ app.context.qaRoot={querySelectorAll:selector=>selector==='pre > code.language-qa'?[{textContent:JSON.stringify({q:'What causes <change>?',a:'Compare groups.\n<script>unsafe</script>'}),parentElement:{replaceWith(node){rendered=node}}}]:[]};
+ await app.run('enhance(qaRoot)');assert.equal(rendered.className,'practice-question');assert(rendered.innerHTML.includes('<summary>What causes &lt;change&gt;?'));assert(!rendered.innerHTML.includes('<script>'));
 });

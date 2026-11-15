@@ -53,6 +53,8 @@ const partsOf=n=>{
  const out=[{part:n.kind==="lecture"?"My Notes/notes.md":"note",text:String(n.body||"")},{part:"description",text:String(n.description||"")}];
  if(n.kind==="lecture"){
   for(const [name,text] of Object.entries(n.generated||{}))out.push({part:"Generated/"+name,text:String(text)});
+  if(n.prepared_practice)out.push({part:"Generated/practice.md",text:n.prepared_practice});
+  for(const note of n.slide_explanations||[])out.push({part:"Generated/slide-explanations.md",text:note.body});
   const segments=new Map((n.segments||[]).map(segment=>[segment.id,segment]));
   if(n.chunks?.length)for(const c of n.chunks)out.push({part:"Source/transcript",chunk:c.n,text:[c.slide_text||"",...(c.segmentIds||[]).map(key=>segments.get(key)?.text||"")].join("\n")});
   else out.push({part:"Source/transcript",text:[...segments.values()].map(x=>x.text).join(" ")});
@@ -87,7 +89,7 @@ function lectureBundle(n){
  const timed=n.timed_captions!==false&&!segments.some(x=>x.untimed);
  const duration=segments.reduce((end,x)=>Math.max(end,x.end||0),0);
  const chunks=n.chunks?.length?n.chunks:segments.length?[{n:1,page:null,title:"Transcript",start:0,end:duration,segmentIds:segments.map(x=>x.id)}]:[];
- return {meta:n,chunks:chunks.map(c=>({...c,said:(c.segmentIds||[]).map(key=>byId.get(key)).filter(Boolean),link:timed?lectureUrl(n.panopto_url,c.start):"",time:timed?((c.approximate?"≈ ":"")+Math.floor(c.start/60)+":"+String(Math.floor(c.start%60)).padStart(2,"0")):"Segment "+c.n})),pages_not_shown:[],generated,generated_html:Object.fromEntries(Object.entries(generated).map(([k,v])=>[k,md(v)])),my_notes:n.body||"",my_notes_html:md(n.body),has_audio:false,breadcrumbs:breadcrumbs(n)};
+ return {meta:n,chunks:chunks.map(c=>({...c,said:(c.segmentIds||[]).map(key=>byId.get(key)).filter(Boolean),link:timed?lectureUrl(n.panopto_url,c.start):"",time:timed?((c.approximate?"≈ ":"")+Math.floor(c.start/60)+":"+String(Math.floor(c.start%60)).padStart(2,"0")):"Segment "+c.n})),pages_not_shown:[],generated,generated_html:Object.fromEntries(Object.entries(generated).map(([k,v])=>[k,md(v)])),slide_explanations_html:(n.slide_explanations||[]).map(s=>({...s,html:md(s.body)})),prepared_practice_html:md(n.prepared_practice||""),my_notes:n.body||"",my_notes_html:md(n.body),has_audio:false,breadcrumbs:breadcrumbs(n)};
 }
 const sectionOf=n=>{let p=n;for(let i=0;i<40&&p;i++){if(p.kind==="section")return p.id;p=get(p.parent)}return null};
 const result=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json"}});
@@ -124,6 +126,24 @@ if(method==="GET"&&p==="/api/search"){
  }return out;
 }
 if(method==="POST"&&p==="/api/render")return {__html:md(body.body)};
+if(method==="POST"&&p==="/api/lectures/import-markdown"){
+ if(HOSTED&&body.accountId!==owner)throw Error("Your account changed. Reopen Markdown import in the correct account.");
+ if(!window.LumenImport)throw Error("Markdown import could not load. Reconnect and reload Lumen.");
+ const document=window.LumenImport.parse(body.text,String(body.filename||"lecture.md")),target=window.LumenImport.plan(db,document.metadata,body.destination||{}),existing=target.lecture.new?null:target.lecture;
+ if(existing?.lesson_source==="markdown"&&existing.generated?.["study-pack.md"]===document.content&&(existing.prepared_practice||"")===document.practice&&stable(existing.slide_explanations||[])===stable(document.slide_explanations))return {id:existing.id,unchanged:true};
+ return mod("Import Markdown lecture",()=>{
+  const create=(spec,parent)=>{if(!spec.new)return spec;const importKey=fingerprint([spec.kind,parent.id,spec.title.normalize("NFKC").trim().toLowerCase().replace(/\s+/g," ")]),stableId=spec.kind[0]+"_md_"+importKey,key=db.records[stableId]||db.deleted[stableId]?id(spec.kind[0]):stableId;const record={id:key,import_key:importKey,kind:spec.kind,title:spec.title,parent:parent.id,type:spec.type||"",icon:"",color:({academic:"#a9c7ff",professional:"#ffd27a",creative:"#c7b3ff",language:"#8fe3bf"})[spec.type||parent.type]||"#c7b3ff",created:now(),updated:now()};db.records[record.id]=record;return record;};
+  const section=create(target.section,requireNode("root")),module=create(target.module,section),lecture=create(target.lecture,module);
+  if(lecture.body===undefined)lecture.body="";
+  lecture.generated={...(lecture.generated||{}),"study-pack.md":document.content};
+  lecture.prepared_practice=document.practice;lecture.slide_explanations=document.slide_explanations;
+  lecture.lesson_source="markdown";lecture.generated_source="prepared";lecture.status="complete";lecture.materials_stale=false;
+  lecture.markdown_import={filename:document.filename.slice(0,200),at:now(),source_bytes:document.source_bytes,format_version:1};
+  touch(lecture);
+  if(HOSTED&&new TextEncoder().encode(JSON.stringify(db)).byteLength>8*1024*1024-2048)throw Error("This import exceeds the library sync limit. Export a backup and reduce unused material before importing.");
+  return {id:lecture.id,created:!existing};
+ });
+}
 if(method==="GET"&&v==="lectures")return lectureBundle(requireNode(oid));
 if(method==="POST"&&p==="/api/lectures/from-panopto")return mod("Import lecture transcript",()=>{
  const parent=requireNode(body.parent_id||"inbox");if(!["inbox","section","module"].includes(parent.kind))throw Error("Choose a section or the Inbox");
@@ -187,6 +207,11 @@ function conflictCopy(out,record){
  const key="conflict_"+record.id+"_"+fingerprint(record);
  if(!out.records[key])out.records[key]={...copy(record),id:key,title:(record.title||"Untitled")+" (conflict copy)"};
 }
+function equivalentImport(a,b){
+ if(!a||!b||!(a.import_key&&a.import_key===b.import_key||a.kind==="lecture"&&b.kind==="lecture"&&a.lesson_source==="markdown"&&b.lesson_source==="markdown"))return false;
+ const comparable=record=>{const value=copy(record);delete value.created;delete value.updated;delete value.markdown_import;return stable(value)};
+ return comparable(a)===comparable(b);
+}
 function mergeStates(local,remote,previous=baseline?.records||{}){
  const out={version:1,records:{},deleted:{}};
  const keys=new Set([...Object.keys(local.records),...Object.keys(remote.records),...Object.keys(local.deleted),...Object.keys(remote.deleted)]);
@@ -202,7 +227,7 @@ function mergeStates(local,remote,previous=baseline?.records||{}){
   else {
    const la=live(local,key),lb=live(remote,key);
    if(!la||!lb){chosen=!la?local:remote;conflictCopy(out,la||lb)}
-   else{chosen=a>b?local:remote;conflictCopy(out,a>b?lb:la)}
+   else{chosen=a>b?local:remote;if(!equivalentImport(la,lb))conflictCopy(out,a>b?lb:la)}
   }
   const record=live(chosen,key);
   if(record)out.records[key]=copy(record);

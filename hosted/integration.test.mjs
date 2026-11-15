@@ -72,6 +72,7 @@ function browser(remote, options = {}) {
     AbortController, Event, Blob, console, btoa, atob, setTimeout: () => 0, clearTimeout() {}, setInterval() {}, alert() {}, confirm: () => true};
   vm.createContext(context);
   vm.runInContext(readFileSync(new URL("../web/markdown.js", import.meta.url), "utf8"), context);
+  vm.runInContext(readFileSync(new URL("../web/import.js", import.meta.url), "utf8"), context);
   vm.runInContext(code, context, {filename: 'cloud/cloud.js'});
   return {window, saved, account, navigator, hooks, cloud: window.LumenCloud};
 }
@@ -86,6 +87,22 @@ async function connect(device) {
   assert.equal(await device.cloud.sync(), true, device.cloud.state.message);
 }
 const deferred = () => {let resolve; const promise = new Promise(r => {resolve = r;}); return {promise, resolve};};
+
+const preparedLecture = '# Prepared lecture\n\nA complete explanation with [[Control groups]].\n\n```widget\n<div>Self-contained illustration</div>\n```\n\n# Slide explanations\n\n## Slide 1\nAn official prepared explanation.';
+const markdownRequest = device => ({text:'---\nsection: Psychology\nmodule: Research Methods\nlecture: Lecture 01 - Design\n---\n\n'+preparedLecture,filename:'lecture-01.md',accountId:device.cloud.activeAccountId});
+test('a Markdown-only lecture syncs its complete material and slide explanations across accounts and offline devices',async()=>{
+  const remote=server(),a=browser(remote),b=browser(remote),other=browser(remote,{account:'bob'});
+  await connect(a);const imported=await api(a,'POST','/api/lectures/import-markdown',markdownRequest(a));await connect(a);await connect(b);await connect(other);
+  const lecture=await api(b,'GET','/api/lectures/'+imported.id);assert(lecture.generated_html['study-pack.md'].includes('language-widget'));assert(lecture.slide_explanations_html[0].html.includes('official prepared'));assert(!lecture.meta.source_pdf&&!lecture.meta.segments);
+  assert(!other.cloud.exportData().records[imported.id]);b.navigator.onLine=false;await api(b,'PUT','/api/lectures/'+imported.id+'/notes',{body:'Offline note with a question.'});
+  b.navigator.onLine=true;await connect(b);await connect(a);assert.equal((await api(a,'GET','/api/lectures/'+imported.id)).my_notes,'Offline note with a question.');
+});
+test('simultaneous imports of the same Markdown file converge without duplicate lectures or folders',async()=>{
+  const remote=server(),a=browser(remote),b=browser(remote);await connect(a);await connect(b);
+  const first=await api(a,'POST','/api/lectures/import-markdown',markdownRequest(a)),second=await api(b,'POST','/api/lectures/import-markdown',markdownRequest(b));assert.equal(first.id,second.id);
+  await Promise.all([connect(a),connect(b)]);await connect(a);await connect(b);
+  const records=Object.values((await remote.cloud()).state.records);for(const kind of ['section','module','lecture'])assert.equal(records.filter(n=>n.kind===kind).length,1);assert(!records.some(n=>n.id.startsWith('conflict_')));assert.deepEqual(clean(a.cloud.exportData()),clean(b.cloud.exportData()));
+});
 
 test('actual clients sync notes, hierarchy, lectures, and offline edits through the Worker', async () => {
   const remote = server(), a = browser(remote), b = browser(remote);

@@ -1,5 +1,10 @@
 # Lumen study-workflow audit — 15 November 2026
 
+The current browser workflow has since moved to [one-file Markdown import](MARKDOWN_IMPORT.md):
+Lecture, optional Slides, and Notes. It imports prepared material without AI calls,
+caption uploads or automatic card generation. The audit below records the earlier
+transcript workflow and its verification limits; it is not the current UI guide.
+
 The library and sync have a working foundation. The full “upload recording → AI
 transcript → AI study pack” workflow is **not connected in the hosted app**.
 The fixes in this audit improve the actual available workflow without claiming

@@ -14,6 +14,7 @@ function browser(options={}){
     Event, navigator:online,location:{href:"https://example.github.io/lumen/",pathname:"/lumen/",search:"",hash:""},setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id},clearTimeout(id){timers.delete(id)},setInterval(){},console,confirm:()=>true,alert:()=>{},btoa,atob};
  vm.createContext(context);
  vm.runInContext(fs.readFileSync("web/markdown.js","utf8"),context);
+ vm.runInContext(fs.readFileSync("web/import.js","utf8"),context);
  vm.runInContext(code,context,{filename:"cloud/cloud.js"});
  vm.runInContext(fs.readFileSync("cloud/panopto.js","utf8"),context,{filename:"cloud/panopto.js"});
  return {window,localStorage,sessionStorage,hooks,online,timers,saved,context};

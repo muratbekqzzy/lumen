@@ -52,7 +52,7 @@ motionMedia.addEventListener?.("change", () => { updateAtmosphereControls(); win
 // luminous section colours: they glow as galaxies in the universe
 const COLORS = ["#a9c7ff", "#ffd27a", "#ff9fb2", "#8fe3bf", "#c7b3ff", "#7fd6ff", "#ffb38a", "#e6e9ee"];
 const EMOJIS = ["", "📚", "🧠", "🩺", "💬", "🎬", "🎨", "🔬", "📐", "📊", "🌍", "✍️", "🎼", "💻", "🕌", "🥐", "🌿", "⚖️", "🧪", "🏛️", "📷", "🗺️", "🧩", "⭐"];
-const TYPES = [["", "General"], ["academic", "Academic"], ["language", "Language"], ["creative", "Creative / practical"]];
+const TYPES = [["academic", "Academic"], ["professional", "Professional"], ["creative", "Creative"], ["language", "Language"]];
 const ICONS = {
   more: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
   chev: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg>',
@@ -281,13 +281,13 @@ function openMenu(e, n) {
     if (["section", "module"].includes(n.kind)) {
       items.push(["New module inside", () => containerDialog({ parent: n })]);
       items.push(["New note here", () => noteDialog(n)]);
-      items.push(["Add lecture here", () => lectureDialog(n)]);
+      items.push(["Import Markdown here", () => lectureDialog(n)]);
       items.push("-");
     }
-    if (n.kind === "inbox") { items.push(["New note", () => noteDialog(n)], ["Add lecture", () => lectureDialog(n)]); }
+    if (n.kind === "inbox") { items.push(["New note", () => noteDialog(n)], ["Import Markdown", () => lectureDialog(n)]); }
     if (!["inbox", "archive"].includes(n.kind)) {
       items.push(["Rename…", () => renameDialog(n)]);
-      if (["section", "module"].includes(n.kind)) items.push(["Icon, colour & type…", () => containerDialog({ node: n })]);
+      if (["section", "module"].includes(n.kind)) items.push(["Appearance & category…", () => containerDialog({ node: n })]);
       items.push(["Move to…", () => moveDialog(n)]);
       items.push("-");
       items.push(["Archive", () => archiveDialog(n), "danger"]);
@@ -331,7 +331,7 @@ function containerDialog({ parent = null, node = null }) {
     ${editing ? "" : `<label>Name</label><input type="text" name="title" required placeholder="${kind === "section" ? "e.g. Neuropsychology" : "e.g. Psychological Research Methods"}">`}
     <label>Icon</label><div class="emojis">${EMOJIS.map((e) => `<button type="button" data-e="${e}" class="${e === icon ? "on" : ""}">${e || "Aa"}</button>`).join("")}</div>
     <label>Colour</label><div class="swatches">${COLORS.map((c) => `<span class="swatch ${c === color ? "on" : ""}" style="--c:${c}" data-c="${c}"></span>`).join("")}</div>
-    <label>Type</label><select name="type">${TYPES.map(([v, l]) => `<option value="${v}" ${v === (node?.type || "") ? "selected" : ""}>${l}</option>`).join("")}</select>
+    <label>Category</label><select name="type">${TYPES.map(([v, l]) => `<option value="${v}" ${v === (node?.type || parent?.type || "academic") ? "selected" : ""}>${l}</option>`).join("")}</select>
     <div class="actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button type="submit" class="btn primary">${editing ? "Save" : "Create"}</button></div>`,
     async (f) => {
       const type = f.type.value;
@@ -386,7 +386,13 @@ function noteDialog(parent) {
     <div class="actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button type="submit" class="btn primary">Create</button></div>`,
     async (f) => { const r = await api("POST", "/api/notes", { parent_id: parent.id, title: f.title.value, body: "" }); await loadTree(); go(`#/note/${r.id}?edit`); });
 }
+function openMarkdownImport(context = {}) {
+  if (hasUnsavedDraft()) { toast('Save your notes before importing another file. Your draft is kept here.'); return; }
+  if (!window.LumenImport) { toast('Import could not load. Reconnect and reload Lumen.'); return; }
+  return window.LumenImport.open(context);
+}
 function lectureDialog(parent) {
+  if (window.LumenImport && window.LumenCloud) return openMarkdownImport({parentId:parent.id});
   if (window.LumenPanopto) return window.LumenPanopto.open(parent);
   dialog(`<h3>Add a lecture${parent.kind !== "inbox" ? ` to “${h(parent.title)}”` : ""}</h3>
     <p style="font-size:14px;color:var(--muted)">Recordings are transcribed locally on this Mac with Whisper. Upload an audio/video file and optionally a PDF of the slides. A Panopto link adds playback shortcuts; it does not fetch the recording.</p>
@@ -412,6 +418,7 @@ function loadPlotly() {
 }
 function themeVars() { const cs = getComputedStyle(document.documentElement); return Object.fromEntries(["--ink", "--ink-2", "--muted", "--line", "--panel", "--bg", "--accent", "--mark"].map((k) => [k, cs.getPropertyValue(k).trim()])); }
 async function enhance(root) {
+  if (!root || root.isConnected === false) return;
   for (const code of $$("pre > code.language-plotly", root)) {
     const pre = code.parentElement;
     let spec; try { spec = JSON.parse(code.textContent); } catch { continue; }
@@ -420,23 +427,30 @@ async function enhance(root) {
     pre.replaceWith(box);
     try {
       await loadPlotly();
+      if (root.isConnected === false) return;
       const t = themeVars();
       const layout = { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", font: { family: "Inter, sans-serif", color: t["--ink-2"] }, margin: { t: 40, r: 20, b: 50, l: 55 }, ...(spec.layout || {}) };
       window.Plotly.newPlot(box.firstElementChild, spec.data || [], layout, { responsive: true, displaylogo: false });
     } catch { box.firstElementChild.textContent = "Chart library could not load (offline?)."; }
   }
   for (const code of $$("pre > code.language-quiz", root)) renderQuiz(code);
+  for (const code of $$("pre > code.language-qa", root)) {
+    try { const item=JSON.parse(code.textContent); if(typeof item.q!=="string"||typeof item.a!=="string")continue;
+      const box=document.createElement("details");box.className="practice-question";box.innerHTML=`<summary>${h(item.q)}</summary><div>${h(item.a).replace(/\n/g,"<br>")}</div>`;code.parentElement.replaceWith(box);
+    } catch {}
+  }
   for (const code of $$("pre > code.language-widget", root)) {
     const pre = code.parentElement;
     const src = code.textContent;
     const hgt = +(src.match(/height:\s*(\d+)/)?.[1] || 440);
     const t = themeVars();
-    const base = `<style>:root{${Object.entries(t).map(([k, v]) => `${k}:${v}`).join(";")}}body{margin:0;padding:16px;font:14px/1.5 Inter,-apple-system,sans-serif;color:var(--ink);background:transparent}</style>`;
+    const base = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'"><style>:root{${Object.entries(t).map(([k, v]) => `${k}:${v}`).join(";")}}body{margin:0;padding:16px;font:14px/1.5 Inter,-apple-system,sans-serif;color:var(--ink);background:transparent}</style>`;
     const box = document.createElement("div"); box.className = "viz";
     const fr = document.createElement("iframe");
-    fr.setAttribute("sandbox", "allow-scripts"); fr.style.height = hgt + "px"; fr.srcdoc = base + src;
+    fr.setAttribute("sandbox", "allow-scripts"); fr.setAttribute("title", "Interactive lecture illustration"); fr.loading = "lazy"; fr.style.height = Math.max(200,Math.min(1400,hgt)) + "px"; fr.srcdoc = base + src;
     box.append(fr); pre.replaceWith(box);
   }
+  for (const img of $$(".prose img", root)) { img.loading = "lazy"; img.decoding = "async"; }
   if (window.renderMathInElement) {
     renderMathInElement(root, { delimiters: [{ left: "$$", right: "$$", display: true }, { left: "\\[", right: "\\]", display: true }, { left: "$", right: "$", display: false }, { left: "\\(", right: "\\)", display: false }], throwOnError: false, ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"] });
   } else setTimeout(() => window.renderMathInElement && enhance(root), 400);
@@ -529,7 +543,7 @@ async function pageGraph(isCurrent = () => true) {
       <div class="graph-tools">
         <input id="gq" type="search" placeholder="Find a star" aria-label="Find a star in your knowledge" autocomplete="off">
         <button class="pill on" data-f="structure" aria-pressed="true">Structure</button>
-        <button class="pill on" data-f="concepts" aria-pressed="true">Concepts</button>
+        <button class="pill ${store.get("universeConcepts",false)?"on":""}" data-f="concepts" aria-pressed="${store.get("universeConcepts",false)}">Concepts</button>
         <button class="pill" id="gfit" title="Fit universe to screen" aria-label="Fit universe to screen">Fit</button>
         <button class="pill motion-toggle" id="gmotion" type="button" aria-pressed="true">Drift</button>
       </div>
@@ -565,6 +579,7 @@ async function pageGraph(isCurrent = () => true) {
     else go(hrefFor(n));
   };
   GRAPH = g.mountGraph(host, data, {
+    concepts: store.get("universeConcepts",false),
     onOpen: open,
     onSelect: (n, nb) => {
       if (!isCurrent()) return;
@@ -582,10 +597,10 @@ async function pageGraph(isCurrent = () => true) {
       p.querySelectorAll("[data-id]").forEach((b) => b.onclick = () => GRAPH.focus(b.dataset.id));
     },
   });
-  $$(".graph-tools [data-f]").forEach((b) => b.onclick = () => { const enabled = b.classList.toggle("on"); b.setAttribute("aria-pressed", String(enabled)); GRAPH?.setFilter({ [b.dataset.f]: enabled }); });
+  $$(".graph-tools [data-f]").forEach((b) => b.onclick = () => { const enabled = b.classList.toggle("on"); b.setAttribute("aria-pressed", String(enabled)); if(b.dataset.f==="concepts")store.set("universeConcepts",enabled); GRAPH?.setFilter({ [b.dataset.f]: enabled }); });
   $("#gfit").onclick = () => { GRAPH.clear(); GRAPH.fit(); };
   $("#gq").addEventListener("input", (e) => GRAPH.setQuery(e.target.value.trim()));
-  $("#gq").addEventListener("keydown", (e) => { const query = e.target.value.trim().toLowerCase(); if (e.key === "Enter" && query) { const n = data.nodes.find((x) => x.title.toLowerCase().includes(query)); if (n) GRAPH?.focus(n.id); } });
+  $("#gq").addEventListener("keydown", (e) => { const query = e.target.value.trim().toLowerCase(); if (e.key === "Enter" && query) { const n = data.nodes.find((x) => x.title.toLowerCase().includes(query)); if (n) {if(n.kind==="concept"){const button=$('[data-f="concepts"]');button?.classList.add('on');button?.setAttribute('aria-pressed','true');store.set('universeConcepts',true);}GRAPH?.focus(n.id);} } });
 }
 
 async function pageConcept(name, isCurrent = () => true) {
@@ -664,7 +679,7 @@ function pageContainer(id) {
     ${archived ? "" : `<div class="toolbar">
       ${special ? "" : `<button class="btn" data-a="module">${ICONS.plus} Module</button>`}
       <button class="btn" data-a="note">${ICONS.plus} Note</button>
-      <button class="btn" data-a="lecture">${ICONS.plus} Lecture</button>
+      <button class="btn primary" data-a="lecture">${ICONS.plus} Import Markdown</button>
       ${special ? "" : `<span style="flex:1"></span><button class="btn ghost" data-a="menu">${ICONS.more}</button>`}</div>`}
     ${subs.length ? `<h2 class="sec">${archived ? "Sections & modules" : "Modules"}</h2><div class="grid">${subs.map(cardHTML).join("")}</div>` : ""}
     ${lecs.length ? `<h2 class="sec">Lectures</h2><div class="grid">${lecs.map(cardHTML).join("")}</div>` : ""}
@@ -684,140 +699,78 @@ function pageContainer(id) {
 
 // ---- lecture
 let LECTURE = null, poll;
-const KNOWN = { "study-pack.md": "Study pack", "flashcards.md": "Flashcards", "resources.md": "Further resources" };
 async function pageLecture(id, tab, isCurrent = () => true) {
   clearInterval(poll);
-  const d = await api("GET", `/api/lectures/${id}`);
+  const d = await api('GET', `/api/lectures/${id}`);
   if (!isCurrent()) return;
   LECTURE = d;
-  const m = d.meta;
-  const gen = d.generated_html;
-  const explainers = Object.keys(gen).filter((k) => k.startsWith("explain"));
-  const others = Object.keys(gen).filter((k) => !KNOWN[k] && !k.startsWith("explain"));
-  const tabs = [["pack", "Study pack"], ["slides", "Slides & transcript", d.chunks.length], ["cards", "Flashcards"], ["explain", "Explanations", explainers.length || ""],
-    ["resources", "Further resources"], ...others.map((k) => ["g:" + k, k.replace(/\.md$/, "").replace(/[-_]/g, " ")]), ["notes", "My notes"]];
-  tab = tab || (gen["study-pack.md"] ? "pack" : "slides");
-  const busy = ["processing", "queued", "transcribing"].includes(m.status);
-  main().innerHTML = `<div class="page" id="lec">
-    ${crumbs(d.breadcrumbs.slice(0, -1))}
-    <h1 class="title"><span class="title-edit" id="ttl">${h(m.title)}</span></h1>
-    <div class="sub">
-      ${m.lecturer ? `<span>${h(m.lecturer)}</span>` : ""}${m.date ? `<span>${h(fmtDate(m.date))}</span>` : ""}${m.duration ? `<span>${fmtDur(m.duration)}</span>` : ""}
-      ${m.slide_count ? `<span>${m.slide_count} slides</span>` : ""}
-      <span class="chip ${m.status === "complete" ? "ok" : busy ? "warn" : ""}">${statusLabel(m) || "New"}</span>
-      ${m.panopto_url ? `<a class="btn ghost" href="${h(m.panopto_url)}" target="_blank" rel="noopener">Open in Panopto ${ICONS.ext}</a>` : ""}
-      ${window.LumenPanopto && m.segments?.length ? `<button class="btn ghost" id="edit-captions">${m.caption_reviewed ? "Captions reviewed" : "Review captions"}</button>` : ""}
-      ${window.LumenCloud ? `<button class="btn ghost" id="attach-lecture-pdf">${m.source_pdf ? "Replace original PDF" : "Attach original PDF"}</button><input id="lecture-pdf-input" type="file" accept="application/pdf,.pdf" hidden><button class="btn ghost" id="copy-lecture-source">Copy tutor prompt + source</button><button class="btn ghost" id="add-study-material">Add study material</button>` : ""}
-      <button class="icon-btn" id="lmore">${ICONS.more}</button>
-    </div>
-    ${window.LumenCloud && m.generated_source === "extractive" ? `<div class="study-notice" role="status"><strong>Draft study outline.</strong> Prepared from imported captions, not an AI analysis. ${m.caption_reviewed ? "Captions marked reviewed." : "Review technical terms against the recording or slides."}</div>` : ""}
-    ${m.materials_stale ? `<div class="study-notice" role="status"><strong>Source updated.</strong> Your existing study materials were kept. Review them against the corrected transcript.</div>` : ""}
-    ${m.status === "error" ? `<div class="study-notice" role="alert"><strong>Transcription did not finish.</strong> ${h(m.error || "Check the recording and your local transcription setup.")}</div>` : ""}
-    ${busy ? `<div class="empty"><h3>${m.status === "queued" ? "Queued on your Mac…" : "Transcribing on your Mac…"}</h3><p>Processing time depends on the recording, model, and Mac. Keep the local app running; this page checks for progress.</p></div>` : `
-    <div class="tabs">${tabs.map(([k, l, c]) => `<button class="tab ${k === tab ? "on" : ""}" data-t="${k}">${h(l)}${c ? `<span class="n">${c}</span>` : ""}</button>`).join("")}</div>
-    <div id="tabbody"></div>`}
-  </div>${d.has_audio && !busy ? `<div class="player"><audio id="aud" controls preload="metadata" src="/api/lectures/${id}/audio"></audio><span class="now-t" id="nowt"></span></div>` : ""}`;
-  $("#ttl").onclick = () => renameDialog(NODES.get(id) || { id, title: m.title });
-  $("#lmore").onclick = (e) => openMenu(e, NODES.get(id) || { id, title: m.title, kind: "lecture" });
-  if ($("#edit-captions")) $("#edit-captions").onclick = () => window.LumenPanopto.edit(id);
-  if ($("#attach-lecture-pdf")) {
-    const input = $("#lecture-pdf-input"), button = $("#attach-lecture-pdf");
-    button.onclick = () => input.click();
-    input.onchange = async () => {
-      const file = input.files?.[0]; if (!file) return;
-      button.disabled = true;
-      try { let count; try { count = (await window.LumenPDF.extractText(file)).length; } catch {}
-        const result = await window.LumenPDF.attach(id, file, count); toast(result.message);
-      } catch (error) { toast(error.message); } finally { button.disabled = false; input.value = ""; }
-    };
-  }
-  if ($("#copy-lecture-source")) $("#copy-lecture-source").onclick = () => copyLectureSource(d);
-  if ($("#add-study-material")) $("#add-study-material").onclick = () => preparedMaterialDialog(id);
-  if (busy) { poll = setInterval(async () => { const j = await api("GET", "/api/lectures/" + id); if (!isCurrent()) return; if (!["processing", "queued", "transcribing"].includes(j.meta.status)) { clearInterval(poll); await refresh(); } }, 5000); return; }
-  $$(".tab").forEach((b) => b.onclick = () => {
-    const nextHash = `#/lecture/${id}/${b.dataset.t}`;
+  const m = d.meta, busy = ['processing','queued','transcribing'].includes(m.status);
+  tab = ['slides','notes'].includes(tab) ? tab : 'pack';
+  main().innerHTML = `<div class="page lecture-page" id="lec">
+    ${crumbs(d.breadcrumbs.slice(0,-1))}
+    <div class="lecture-heading"><h1 class="title"><span class="title-edit" id="ttl">${h(m.title)}</span></h1><div class="lecture-actions">${window.LumenCloud ? '<button class="btn ghost" id="update-lecture">Import Markdown</button>' : ''}<button class="icon-btn" id="lmore" aria-label="Lecture options">${ICONS.more}</button></div></div>
+    ${m.materials_stale ? '<p class="study-notice">The source changed since this material was prepared. Import an updated Markdown file when ready.</p>' : ''}
+    ${busy ? '<p class="study-notice" role="status">This lecture is still processing on your Mac.</p>' : ''}
+    <div class="tabs" role="tablist" aria-label="Lecture views">${[['pack','Lecture'],['slides','Slides'],['notes','Notes']].map(([key,label])=>`<button class="tab ${key===tab?'on':''}" role="tab" aria-selected="${key===tab}" aria-controls="tabbody" data-t="${key}">${label}</button>`).join('')}</div>
+    <div id="tabbody" role="tabpanel"></div>
+  </div>`;
+  $('#ttl').onclick = () => renameDialog(NODES.get(id) || {id,title:m.title});
+  $('#lmore').onclick = e => openMenu(e,NODES.get(id) || {id,title:m.title,kind:'lecture'});
+  if ($('#update-lecture')) $('#update-lecture').onclick = () => openMarkdownImport({lectureId:id});
+  $$('.tab').forEach(button => button.onclick = () => {
+    const nextHash = `#/lecture/${id}/${button.dataset.t}`;
     if (!allowEditorReplacement(nextHash)) return;
-    history.replaceState(null, "", nextHash); pageLectureTab(id, b.dataset.t);
+    history.replaceState(null,'',nextHash); pageLectureTab(id,button.dataset.t);
   });
-  pageLectureTab(id, tab);
-  wireAudio();
+  pageLectureTab(id,tab);
+  if (busy) poll = setInterval(async()=>{const next=await api('GET',`/api/lectures/${id}`);if(isCurrent()&&!['processing','queued','transcribing'].includes(next.meta.status)){clearInterval(poll);await refresh();}},5000);
 }
-async function copyLectureSource(lecture) {
-  if (!window.LumenTutor) { toast("Tutor prompt could not load. Reconnect and reload Lumen."); return; }
-  const source = window.LumenTutor.promptFor(lecture);
-  try { if (!navigator.clipboard?.writeText) throw Error("Clipboard unavailable"); await navigator.clipboard.writeText(source); toast("Tutor prompt and source copied. Paste them into your assistant; attach the PDF there for figures."); }
-  catch {
-    const link = document.createElement("a"), url = URL.createObjectURL(new Blob([source], {type:"text/plain;charset=utf-8"}));
-    link.href = url; link.download = "lumen-tutor-prompt-and-source.txt"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast("Clipboard unavailable. Downloaded the tutor prompt and source instead.");
-  }
-}
-function preparedMaterialDialog(id) {
-  dialog(`<h3>Add prepared study material</h3><p>Paste material you prepared or reviewed with an assistant. Lumen saves it to this lecture; it does not run an AI request here. Saving a study pack, cards, or resources replaces that type's current version; explanations are added separately. Your own notes stay separate.</p>
-    <label>Material type</label><select name="kind"><option value="study-pack">Study pack</option><option value="flashcards">Flashcards (Q: / A:)</option><option value="explanation">Explanation</option><option value="resources">Verified resources</option></select>
-    <label>Content (Markdown)</label><textarea name="body" rows="12" required placeholder="Paste your prepared material here"></textarea>
-    <div class="actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button type="submit" class="btn primary">Save material</button></div>`,
-    async (form) => { await api("PUT", `/api/lectures/${id}/materials`, {kind:form.kind.value, body:form.body.value}); await refresh(); });
-}
-function emptyAsk(what, prompt) {
-  const hosted = Boolean(window.LumenCloud);
-  return `<div class="empty"><h3>No ${what} yet</h3><p>${hosted ? "Automatic AI generation is not connected in this edition. Use Copy tutor prompt + source, work with your assistant, then Add study material to save the result here." : "Ask your connected Mac AI assistant to create it from this lecture:"}</p>
-    <code>${h(prompt)}</code><br><br><button class="btn" data-copy="${h(prompt)}">Copy prompt</button></div>`;
+function lessonOutline(body) {
+  const article=$('.lecture-prose',body); if (!article) return;
+  const first=article.firstElementChild;
+  if(first?.tagName==='H1'&&([LECTURE.meta.title,'study-pack.md','study pack'].some(title=>first.textContent.trim().toLowerCase()===title.toLowerCase())))first.remove();
+  $$('h1',article).filter(node=>['study-pack.md','explanation.md'].includes(node.textContent.trim().toLowerCase())).forEach(node=>node.remove());
+  const all=$$('h1,h2,h3',article).filter(node=>!node.closest('.quiz,.viz')),level=Math.min(3,...all.map(node=>Number(node.tagName[1]))),top=all.filter(node=>Number(node.tagName[1])===level);
+  const headings=(top.length>=3?top:all.filter(node=>Number(node.tagName[1])<=level+1)).slice(0,18);
+  if(headings.length<3)return;
+  headings.forEach((node,i)=>node.id='lesson-heading-'+i);
+  const outline=document.createElement('details');outline.className='lesson-outline';
+  outline.innerHTML='<summary>On this page</summary><nav aria-label="Lecture contents">'+headings.map((node,i)=>`<button type="button" data-heading="${i}" class="${Number(node.tagName[1])>level?'outline-sub':''}">${h(node.textContent)}</button>`).join('')+'</nav>';
+  article.before(outline);
+  $$('[data-heading]',outline).forEach(button=>button.onclick=()=>headings[Number(button.dataset.heading)].scrollIntoView({behavior:motionIsCalm()?'auto':'smooth',block:'start'}));
 }
 function pageLectureTab(id, tab) {
   window.LumenPDF?.clearViews();
-  $$(".tab").forEach((b) => b.classList.toggle("on", b.dataset.t === tab));
-  const d = LECTURE, gen = d.generated_html, body = $("#tabbody"), t = d.meta.title;
-  if (tab === "pack") body.innerHTML = gen["study-pack.md"] ? `<div class="prose">${gen["study-pack.md"]}</div>` : emptyAsk("study pack", `Make the study pack for my lecture “${t}” in Lumen.`);
-  else if (tab === "resources") body.innerHTML = gen["resources.md"] ? `<div class="prose">${gen["resources.md"]}</div>` : emptyAsk("further resources", `Find further resources for my lecture “${t}” in Lumen and save them.`);
-  else if (tab === "explain") {
-    const ks = Object.keys(gen).filter((k) => k.startsWith("explain"));
-    body.innerHTML = ks.length ? ks.map((k) => `<div class="prose">${gen[k]}</div><hr>`).join("") : emptyAsk("explanations", `Explain the hardest idea in my lecture “${t}” simply, with an interactive graph, and save it to Lumen.`);
-  } else if (tab.startsWith("g:")) body.innerHTML = `<div class="prose">${gen[tab.slice(2)]}</div>`;
-  else if (tab === "cards") body.innerHTML = renderCards(d.generated["flashcards.md"]) || emptyAsk("flashcards", `Make flashcards for my lecture “${t}” in Lumen.`);
-  else if (tab === "notes") return renderEditor(body, d.my_notes, async (text, expectedBody) => { const r = await api("PUT", `/api/lectures/${id}/notes`, { body: text, expectedBody }); d.my_notes = text; return r; }, "Write your own notes. They stay separate from prepared study materials.");
-  else if (tab === "slides") renderSlides(body, id);
-  $$("[data-copy]", body).forEach((b) => b.onclick = async () => { try { if (!navigator.clipboard?.writeText) throw Error("Clipboard unavailable"); await navigator.clipboard.writeText(b.dataset.copy); toast("Prompt copied"); } catch { toast("Clipboard unavailable. Select the prompt above and copy it."); } });
-  $$(".flash-card", body).forEach((c) => {
-    const flip = () => { const on = c.classList.toggle("flip"); c.setAttribute("aria-pressed", String(on)); c.setAttribute("aria-label", on ? "Show question" : "Reveal answer"); c.querySelector(".front").setAttribute("aria-hidden", String(on)); c.querySelector(".back").setAttribute("aria-hidden", String(!on)); };
-    c.onclick = flip; c.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } };
-  });
-  enhance(body);
-}
-function renderCards(md) {
-  if (!md) return "";
-  const cards = []; let cur = null;
-  for (const line of md.split("\n")) {
-    const q = line.match(/^\s*(?:[-*]\s*)?(?:\*\*)?Q(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+)$/i), a = line.match(/^\s*(?:[-*]\s*)?(?:\*\*)?A(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+)$/i);
-    if (q && /^\s*(?:[-*]\s*)?\**Q/i.test(line)) { cur = { q: q[1], a: "" }; cards.push(cur); }
-    else if (a && cur && /^\s*(?:[-*]\s*)?\**A/i.test(line)) cur.a = a[1];
-    else if (cur && line.trim() && !line.startsWith("#")) { if (cur.a) cur.a += " " + line.trim(); else cur.q += " " + line.trim(); }
-  }
-  if (!cards.length) return "";
-  return `<p style="color:var(--muted);margin-top:-8px">${cards.length} cards · click a card to flip it. Spaced-repetition review comes in the next stage.</p>
-    <div class="cards">${cards.map((c) => `<div class="flash-card" role="button" tabindex="0" aria-label="Reveal answer" aria-pressed="false"><div class="in"><div class="face front" aria-hidden="false"><small>Question</small><div>${h(c.q)}</div></div><div class="face back" aria-hidden="true"><small>Answer</small><div>${h(c.a)}</div></div></div></div>`).join("")}</div>`;
+  tab=['slides','notes'].includes(tab)?tab:'pack';
+  $$('.tab').forEach(button=>{button.classList.toggle('on',button.dataset.t===tab);button.setAttribute('aria-selected',String(button.dataset.t===tab));});
+  const d=LECTURE,body=$('#tabbody'),gen=d.generated_html;
+  if(tab==='notes')return renderEditor(body,d.my_notes,async(text,expectedBody)=>{const result=await api('PUT',`/api/lectures/${id}/notes`,{body:text,expectedBody});d.my_notes=text;return result;},'Your notes and practice questions. ⌘S to save.',true);
+  if(tab==='slides'){renderSlides(body,id);enhance(body);return;}
+  const extra=d.meta.lesson_source==='markdown'?[]:Object.keys(gen).filter(name=>name.startsWith('explain'));
+  body.innerHTML=gen['study-pack.md']?`<article class="prose lecture-prose">${gen['study-pack.md']}${extra.map(name=>`<section class="lesson-supplement"><h2>Further explanation</h2>${gen[name]}</section>`).join('')}</article>`:`<div class="empty"><span class="welcome-kicker">Room for understanding</span><h3>Your lecture, ready to read.</h3><p>Import one prepared Markdown file with your explanations, examples and useful visuals. Slides can be added whenever you need them.</p><button class="btn primary" id="import-empty-lecture">Import Markdown</button></div>`;
+  if(d.prepared_practice_html)body.insertAdjacentHTML('beforeend',`<details class="lesson-practice"><summary>Practice questions</summary><div class="prose">${d.prepared_practice_html}</div></details>`);
+  $('#import-empty-lecture')?.addEventListener('click',()=>openMarkdownImport({lectureId:id}));
+  lessonOutline(body);enhance(body);
 }
 function renderSlides(body, id) {
-  const d = LECTURE, original = d.meta.source_pdf;
-  let chunks = d.chunks;
-  if (window.LumenPDF && original) {
-    const count = Math.min(300, Math.max(1, d.meta.slide_count || 1));
-    chunks = [...d.chunks.filter(c => !c.page), ...Array.from({length: count}, (_, i) => d.chunks.find(c => c.page === i + 1) || {n:"pdf-" + (i+1),page:i+1,title:"Slide " + (i+1),start:0,end:0,time:"",said:[],slide_text:""})];
+  const d=LECTURE,original=d.meta.source_pdf,prepared=d.slide_explanations_html||[];
+  const pageNotes=prepared.filter(note=>note.page>0),count=Math.min(300,Math.max(d.meta.slide_count||0,...pageNotes.map(note=>note.page),...(d.chunks||[]).map(chunk=>chunk.page||0),original?1:0));
+  const numbers=original||!window.LumenCloud?Array.from({length:count},(_,index)=>index+1):[...new Set([...pageNotes.map(note=>note.page),...d.chunks.map(chunk=>chunk.page).filter(Boolean)])].sort((a,b)=>a-b);
+  const chunks=numbers.map(page=>d.chunks.find(chunk=>chunk.page===page)||{n:'pdf-'+page,page,title:'Slide '+page,said:[]});
+  body.innerHTML=`<div class="slides-toolbar"><p>Original slides, with their prepared explanation.</p>${window.LumenPDF&&window.LumenCloud?`<button class="btn ghost" id="add-lecture-slides">${original?'Change slides':'Add slides'}</button><input type="file" id="lecture-slides-file" accept=".pdf,application/pdf" hidden>`:''}</div>
+    ${original&&!original.uploaded?`<p class="study-notice">${window.LUMEN_HOSTED?'The original PDF is waiting to upload from its saved device.':'The original PDF is saved on this device only.'}</p>`:''}
+    ${!original&&window.LumenCloud?'<p class="slide-source-note">Slides are optional. Earlier text-only imports need the original PDF attached to show its actual pages.</p>':''}
+    ${prepared.filter(note=>note.page===0).map(note=>`<div class="prose">${note.html}</div>`).join('')}
+    ${!count?'<div class="empty"><h3>Slides, when you need them.</h3><p>Your lecture material works on its own. Add a PDF here, or include a Slide explanations section in your next Markdown file.</p></div>':`<div class="slides">${chunks.map(chunk=>{
+      const note=prepared.find(item=>item.page===chunk.page),textOnly=note&&!original&&window.LumenCloud,image=textOnly?'':original&&window.LumenPDF&&(chunk.page<=(d.meta.slide_count||count))?`<div class="pdf-page-host" data-pdf-page="${chunk.page}"></div>`:!window.LumenCloud?`<img loading="lazy" src="/api/lectures/${id}/slides/${chunk.page}.png" alt="Slide ${chunk.page}">`:`<div class="ghost-slide"><div><b>Slide ${chunk.page}</b><p>${h(chunk.slide_text||'Add the PDF to see the original slide.')}</p></div></div>`;
+      return `<section class="chunk ${textOnly?'slide-text-only':''}" id="chunk-${chunk.n}">${image?`<div>${image}</div>`:''}<div><h3 class="slide-title">${h(note?.title||chunk.title||'Slide '+chunk.page)}</h3>${note?.html?`<div class="prose slide-explanation">${note.html}</div>`:chunk.said?.length?`<details class="source-wording"><summary>Lecturer’s explanation</summary><div class="prose">${chunk.said.map(segment=>`<p>${h(segment.text)}</p>`).join('')}</div></details>`:'<p class="slide-source-note">No prepared explanation for this page yet.</p>'}</div></section>`;
+    }).join('')}</div>`}`;
+  if($('#add-lecture-slides')){
+    const input=$('#lecture-slides-file'),button=$('#add-lecture-slides');button.onclick=()=>input.click();input.onchange=async()=>{const file=input.files?.[0];if(!file)return;button.disabled=true;try{let pages;try{pages=(await window.LumenPDF.extractText(file)).length;}catch{}const result=await window.LumenPDF.attach(id,file,pages);toast(result.message);}catch(error){toast(error.message);}finally{button.disabled=false;input.value='';}};
   }
-  if (!chunks.length) { body.innerHTML = `<div class="empty"><h3>No transcript yet</h3><p>Attach a PDF using the lecture toolbar to view original slides.</p></div>`; return; }
-  body.innerHTML = `<p style="color:var(--muted);margin-top:-8px">${window.LumenPanopto ? "Original PDF pages appear beside imported captions. Transcript-to-slide grouping is approximate. Untimed transcripts have no accurate playback timestamps." : "Each slide appears alongside the transcript. Select a time to play the recording."}</p>
-    ${window.LumenPDF && !original ? `<div class="study-notice"><strong>Original PDF not attached.</strong> Earlier imports kept text only. Use Attach original PDF above to see the actual slides.</div>` : ""}
-    ${original && !original.uploaded ? `<div class="study-notice">${window.LUMEN_HOSTED ? "The original PDF is saved on its upload device. It will upload to your account when that device reconnects." : "The original PDF is saved on this device only. Use synced Lumen for access from other devices."}</div>` : ""}
-    ${original && !d.meta.slide_count ? `<div class="study-notice">The PDF page count could not be read. Use Open original PDF below to view all its pages.</div>` : ""}
-    <div class="slides">${chunks.map(c => `<div class="chunk" id="chunk-${c.n}" data-start="${c.start}" data-end="${c.end}">
-      <div>${c.page ? (window.LumenPDF && original ? `<div class="pdf-page-host" data-pdf-page="${c.page}"></div>` : window.LumenPanopto ? `<div class="ghost-slide"><div><b>${h(c.title)}</b><p>${h((c.slide_text||"").slice(0,500))}</p></div></div>` : `<img loading="lazy" src="/api/lectures/${id}/slides/${c.page}.png" alt="Slide ${c.page}">`) : `<div class="ghost-slide"><div><b>${h(c.title)}</b>Transcript part</div></div>`}</div>
-      <div><div class="head"><span class="t">${c.page ? c.page + ". " : ""}${h(c.title)}</span>${c.time ? `<button class="time" data-seek="${c.start}" ${window.LumenCloud&&!c.link?"disabled":""}>${ICONS.play} ${h(c.time)}</button>` : ""}${c.link?`<a class="time" href="${h(c.link)}" target="_blank" rel="noopener">↗</a>`:""}</div>
-      <div class="said">${c.said?.length ? c.said.map(s=>`<span data-seek="${s.start}" data-s="${s.id}">${h(s.text)}</span> `).join("") : '<span class="none">No transcript has been assigned to this page.</span>'}</div></div></div>`).join("")}</div>`;
-  if (!window.LumenCloud && d.pages_not_shown?.length) body.insertAdjacentHTML("beforeend", `<h2 class="sec">PDF pages not matched to the recording</h2><div class="grid">${d.pages_not_shown.map(page => `<a href="/api/lectures/${id}/slides/${page}.png" target="_blank" rel="noopener"><img loading="lazy" style="width:100%" src="/api/lectures/${id}/slides/${page}.png" alt="Slide ${page}"></a>`).join("")}</div>`);
-  if (window.LumenPDF && original) $$("[data-pdf-page]", body).forEach(host => window.LumenPDF.mountPage(host, original, Number(host.dataset.pdfPage)));
-  $$("[data-seek]", body).forEach(b => b.onclick = () => seek(+b.dataset.seek, b.closest(".chunk")));
-  const want = new URLSearchParams(location.hash.split("?")[1] || "").get("chunk");
-  if (want) { const el = $("#chunk-" + want); if (el) { el.scrollIntoView({block:"start"}); el.classList.add("flash"); } }
+  if(window.LumenPDF&&original)$$('[data-pdf-page]',body).forEach(host=>window.LumenPDF.mountPage(host,original,Number(host.dataset.pdfPage)));
+  if(!window.LumenCloud&&d.pages_not_shown?.length)body.insertAdjacentHTML('beforeend',`<details class="lesson-practice"><summary>Other PDF pages</summary><div class="grid">${d.pages_not_shown.map(page=>`<img loading="lazy" src="/api/lectures/${id}/slides/${page}.png" alt="Slide ${page}">`).join('')}</div></details>`);
+  const want=new URLSearchParams(location.hash.split('?')[1]||'').get('chunk');if(want){const node=$('#chunk-'+want);node?.scrollIntoView({block:'start'});}
 }
 function seek(t, chunk) {
   const a = $("#aud");
@@ -844,8 +797,8 @@ function wireAudio() {
 }
 
 // ---- notes
-function renderEditor(body, text, save, hint) {
-  body.innerHTML = `<div class="toolbar"><button class="btn primary" id="save">Save</button><span style="color:var(--muted);font-size:13px;align-self:center">${h(hint || "Markdown supported. ⌘S to save.")}</span></div>
+function renderEditor(body, text, save, hint, practice = false) {
+  body.innerHTML = `<div class="toolbar"><button class="btn primary" id="save">Save</button>${practice ? '<button class="btn ghost" id="add-practice-question">Add a question</button>' : ''}<span style="color:var(--muted);font-size:13px;align-self:center">${h(hint || "Markdown supported. ⌘S to save.")}</span></div>
     <p id="editor-sync-notice" role="status" hidden style="color:var(--muted);font-size:13px">Changes arrived from another device. Your draft is kept here; saving will preserve both versions if needed.</p>
     <div class="editor"><textarea id="ed" spellcheck="true">${h(text)}</textarea><div class="preview prose" id="pv"></div></div>`;
   const ed = $("#ed"), pv = $("#pv"), button = $("#save");
@@ -884,6 +837,10 @@ function renderEditor(body, text, save, hint) {
   };
   button.onclick = doSave;
   ed.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); doSave(); } });
+  if ($('#add-practice-question')) $('#add-practice-question').onclick = () => dialog(`<h3>Add a practice question</h3><label>Question</label><textarea name="question" rows="3" required></textarea><label>Answer</label><textarea name="answer" rows="4" required></textarea><div class="actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button class="btn primary" type="submit">Insert question</button></div>`, form => {
+    const block='\n\n```qa\n'+JSON.stringify({q:form.question.value.trim(),a:form.answer.value.trim()})+'\n```\n';
+    ed.setRangeText(block,ed.selectionStart,ed.selectionEnd,'end');ed.dispatchEvent(new Event('input'));ed.focus();
+  });
   preview();
 }
 async function pageNote(id, edit, isCurrent = () => true) {
@@ -979,6 +936,7 @@ async function renderRoute(hash = location.hash, isCurrent = () => true) {
 setAtmosphere(store.get("theme", "space"), false);
 setMotion(store.get("motion", "full"), false);
 $("#add-section").onclick = () => containerDialog({});
+$("#import-markdown")?.addEventListener("click", () => { const parts = location.hash.split("/"); openMarkdownImport(parts[1] === "lecture" ? {lectureId:parts[2]} : {parentId:parts[1] === "n" ? parts[2] : null}); });
 let qt;
 $("#q").addEventListener("input", (e) => { clearTimeout(qt); const v = e.target.value.trim(); qt = setTimeout(() => v && go(`#/search/${encodeURIComponent(v)}`), 300); });
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.value.trim()) go(`#/search/${encodeURIComponent(e.target.value.trim())}`); });

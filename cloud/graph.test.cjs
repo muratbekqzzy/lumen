@@ -9,7 +9,7 @@ function target() {
  return {events, addEventListener(n, fn) { if (!events.has(n)) events.set(n, new Set()); events.get(n).add(fn); }, removeEventListener(n, fn) { events.get(n)?.delete(fn); },
  dispatch(n, props = {}) { for (const fn of [...events.get(n) || []]) fn({type:n, preventDefault(){}, ...props}); }};
 }
-function fixture({empty = false, theme = 'space', motion = 'full', width = 800, height = 650} = {}) {
+function fixture({empty = false, theme = 'space', motion = 'full', width = 800, height = 650, data:customData} = {}) {
  const calls = [], frames = new Map(), observers = [], simulations = [], canvases = [];
  let timestamp = 0, serial = 0;
  const drawing = new Proxy({createRadialGradient:() => ({addColorStop(){}})}, {
@@ -33,13 +33,21 @@ function fixture({empty = false, theme = 'space', motion = 'full', width = 800, 
   requestAnimationFrame(fn){frames.set(++serial,fn);return serial;},cancelAnimationFrame(id){frames.delete(id);},performance:{now:()=>timestamp},devicePixelRatio:2,forceSimulation,forceLink,
   forceManyBody:chain,forceCollide:chain,forceX:chain,forceY:chain,console};
  vm.createContext(context);vm.runInContext(source,context);
- const data=empty?{nodes:[],edges:[]}:{nodes:[{id:'s1',title:'Dreams',kind:'section',section:'s1',color:'#c4b5fd'},{id:'n1',title:'Memory',kind:'note',section:'s1',parent:'s1',degree:1}],edges:[{source:'s1',target:'n1',type:'contains'}]};
+ const data=customData||(empty?{nodes:[],edges:[]}:{nodes:[{id:'s1',title:'Dreams',kind:'section',section:'s1',color:'#c4b5fd'},{id:'n1',title:'Memory',kind:'note',section:'s1',parent:'s1',degree:1}],edges:[{source:'s1',target:'n1',type:'contains'}]});
  let selects=0,opens=0;
  const graph=context.mountGraph(host,data,{onSelect(){selects++;},onOpen(){opens++;}});
  function advance(count=1){for(let i=0;i<count;i++){timestamp+=40;const queue=[...frames.values()];frames.clear();for(const fn of queue)fn(timestamp);}}
  return {graph,host,document,window,media,canvas:host.canvas,calls,frames,observers,sim:simulations[0],advance,get selects(){return selects},get opens(){return opens}};
 }
 function point(type,id,x,y){return {pointerId:id,offsetX:x,offsetY:y,pointerType:type,button:0};}
+
+test('the universe labels landmarks rather than every note, and reveals a selected star clearly',()=>{
+ const f=fixture({motion:'calm'});f.advance(3);assert(!f.calls.some(c=>c.method==='fillText'&&c.args[0]==='Memory'));f.calls.length=0;f.graph.focus('n1');f.advance(2);assert(f.calls.some(c=>c.method==='fillText'&&c.args[0]==='Memory'));f.graph.destroy();
+});
+test('dense universes cap visible labels on desktop and mobile',()=>{
+ const data={nodes:Array.from({length:24},(_,i)=>({id:'s'+i,kind:'section',title:'Section '+i,section:'s'+i})),edges:[]};
+ for(const width of [800,360]){const f=fixture({data,width,motion:'calm'});f.advance(3);f.calls.length=0;f.graph.setQuery('Section');f.advance();assert(f.calls.filter(c=>c.method==='fillText').length<=(width<600?3:5));f.graph.destroy();}
+});
 
 test('graph destruction removes preference, input, observer and animation resources',()=>{
  const f=fixture();f.advance(35);assert(f.calls.some(x=>x.method==='fillText'));

@@ -27,6 +27,7 @@
   <div class="app">
     <aside class="side">
       <div class="brand"><span class="mark" aria-hidden="true"></span>Lumen</div>
+      <button class="btn import-launch" id="import-markdown" type="button"><span aria-hidden="true">＋</span> Import Markdown</button>
       <div class="searchbox">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         <input id="q" type="search" placeholder="Search everything" autocomplete="off">
@@ -49,11 +50,10 @@
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
   <script defer src="cloud/hosting.js"></script>
   <script defer src="web/markdown.js"></script>
+  <script defer src="web/import.js"></script>
   <script defer src="cloud/cloud.js"></script>
   <script defer src="cloud/migrate.js"></script>
   <script defer src="web/pdf.js"></script>
-  <script defer src="web/tutor.js"></script>
-  <script defer src="cloud/panopto.js"></script>
   <script defer src="web/aura.js"></script>
   <script type="module" src="web/app.js"></script>
   <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
