@@ -1,8 +1,8 @@
 // Lumen's knowledge universe. Library records are the stars; ambient dust is decorative.
 import { forceSimulation, forceLink, forceManyBody, forceCollide, forceX, forceY } from "./force.js";
+import { galaxyLayout, overviewCamera, rotatePoint, screenPoint, worldPoint } from "./universe.js";
 
-const KIND_R = { section: 5.2, module: 3.6, lecture: 3.4, note: 2.4, concept: 1.7 };
-const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
+const KIND_R = { section: 2.9, module: 1.8, lecture: 1.65, note: 1.25, concept: .95 };
 const SANS = '"Inter", -apple-system, sans-serif';
 const ease = t => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
@@ -13,9 +13,25 @@ function rgb(value) {
 }
 const rgba = (hex, a) => `rgba(${rgb(hex).join(",")},${clamp(a, 0, 1)})`;
 const palettes = {
-  space: { ink: "#f2edff", muted: "#a59abf", star: "#dbc9ff", concept: "#b9bbdf", bridge: "#f6cfa0", dust: "#d5cefa", core: "#ffffff", halo: "#baa0fa", edge: .33 },
-  sky: { ink: "#3d315e", muted: "#685576", star: "#7354ab", concept: "#6e6994", bridge: "#9c683c", dust: "#7b68a6", core: "#4e3b73", halo: "#a797d0", edge: .38 },
+  space: { ink: "#fff1fc", muted: "#c7acd9", star: "#f7bde9", concept: "#d6c3ff", bridge: "#ffe1d9", dust: "#e6d3ff", core: "#fffaf5", halo: "#d5a8ff", edge: .07 },
+  sky: { ink: "#573161", muted: "#89618a", star: "#cf91da", concept: "#ad93db", bridge: "#b86db5", dust: "#be96d4", core: "#fffafc", halo: "#bd91e7", edge: .095 },
 };
+const galaxyCache=new Map();
+function randomFrom(seed){let value=2166136261;for(const char of String(seed))value=Math.imul(value^char.charCodeAt(0),16777619);return()=>{value+=0x6D2B79F5;let n=value;n=Math.imul(n^n>>>15,n|1);n^=n+Math.imul(n^n>>>7,n|61);return ((n^n>>>14)>>>0)/4294967296;};}
+function galaxySprite(sky,index){
+ const key=(sky?'sky':'space')+(index%2);if(galaxyCache.has(key))return galaxyCache.get(key);
+ const canvas=document.createElement('canvas');canvas.width=canvas.height=384;const g=canvas.getContext('2d'),random=randomFrom(key);
+ const colors=sky?(index%2?['#b994e5','#e7a8d3','#c6b6ec']:['#df9fc8','#b990e6','#eac0d9']):(index%2?['#ceb5ff','#ffc9e6','#d0dfff']:['#ffc4e4','#d0b5ff','#ffe6db']);
+ g.globalCompositeOperation=sky?'source-over':'lighter';
+ for(let j=0;j<3;j++){const r=154-j*24,gradient=g.createRadialGradient(192+j*7,192-j*7,0,192,192,r);gradient.addColorStop(0,rgba(colors[j],sky?.16:.12));gradient.addColorStop(.45,rgba(colors[j],sky?.08:.055));gradient.addColorStop(1,rgba(colors[j],0));g.fillStyle=gradient;g.fillRect(0,0,384,384);}
+ for(let i=0;i<620;i++){
+  const r=Math.pow(random(),.64)*158,arm=i%2*Math.PI,a=r*.033+arm+(random()-.5)*.68;
+  const x=192+Math.cos(a)*r+(random()-.5)*13,y=192+Math.sin(a)*r*.58+(random()-.5)*11,size=random()>.97?1.5:.45+random()*.55;
+  g.globalAlpha=(1-r/240)*(.2+random()*.55);g.fillStyle=colors[i%3];g.fillRect(x,y,size,size);
+ }
+ g.globalAlpha=1;const core=g.createRadialGradient(192,192,0,192,192,34);core.addColorStop(0,rgba('#fff7ee',.88));core.addColorStop(.17,rgba('#ffe4f2',.4));core.addColorStop(.55,rgba(colors[0],.13));core.addColorStop(1,rgba(colors[1],0));g.fillStyle=core;g.fillRect(152,152,80,80);
+ galaxyCache.set(key,canvas);return canvas;
+}
 const glowCache = new Map();
 function glow(color) {
   if (glowCache.has(color)) return glowCache.get(color);
@@ -33,7 +49,7 @@ export function mountGraph(host, data, opts = {}) {
   const canvas = document.createElement("canvas");
   canvas.className = "graph-canvas"; canvas.tabIndex = mini ? -1 : 0;
   canvas.setAttribute("role", "img");
-  canvas.setAttribute("aria-label", mini ? "Knowledge constellation preview" : "Interactive knowledge constellation. Drag to explore, use plus or minus to zoom, 0 to fit, Escape to clear selection, Enter to open a selected star.");
+  canvas.setAttribute("aria-label", mini ? "Knowledge constellation preview" : "Interactive galaxy. Drag to move, pinch to zoom and twist to rotate. Shift-drag rotates with a mouse. Plus and minus zoom, 0 returns home, Escape clears selection, Enter opens a selected star.");
   host.append(canvas);
   const ctx = canvas.getContext("2d"), motionQuery = matchMedia("(prefers-reduced-motion: reduce)");
   const cleanups = [];
@@ -55,58 +71,48 @@ export function mountGraph(host, data, opts = {}) {
     n.galaxy = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || "inbox";
   }
   const sectionInfo = new Map(nodes.filter(n => n.kind === "section").map(s => [s.id, { title: s.title, color: s.color }]));
-  const galaxyIds = [...new Set(nodes.map(n => n.galaxy))];
-  const galaxies = new Map(galaxyIds.map((id, i) => {
-    const info = sectionInfo.get(id) || { title: id === "inbox" ? "Inbox" : "Unsorted" };
-    const angle = i / galaxyIds.length * Math.PI * 2 - Math.PI / 2, radius = galaxyIds.length > 1 ? 150 + 70 * Math.sqrt(galaxyIds.length) : 0;
-    return [id, { id, ...info, ax: Math.cos(angle) * radius, ay: Math.sin(angle) * radius, cx: Math.cos(angle) * radius, cy: Math.sin(angle) * radius, rad: 40, n: 0, spin: Math.random() * 6 }];
-  }));
+  const galaxies=galaxyLayout(nodes);
+  for(const g of galaxies.values())Object.assign(g,{...sectionInfo.get(g.id),cx:g.ax,cy:g.ay,rad:g.footprint,n:0,spin:randomFrom(g.id)()*Math.PI,core:nodes.find(node=>node.kind==='section'&&node.id===g.id)});
   function colorOf(n) {
     if (n.kind === "concept") return n.bridges > 1 ? palette.bridge : palette.concept;
-    const original = n.color || galaxies.get(n.galaxy)?.color;
-    if (!original) return palette.star;
-    if (!sky) return `#${rgb(original).map(v => v.toString(16).padStart(2, "0")).join("")}`;
-    // Pastel section colours need a darker ink on the lavender sky.
-    const c = rgb(original).map(v => Math.round(v * .55));
-    return `#${c.map(v => v.toString(16).padStart(2, "0")).join("")}`;
+    const original=n.color||galaxies.get(n.galaxy)?.color||palette.star,base=rgb(galaxies.get(n.galaxy)?.index%2?'#c9bbff':palette.star);
+    return '#'+rgb(original).map((value,i)=>Math.round(base[i]*.78+value*.22).toString(16).padStart(2,'0')).join('');
   }
-  nodes.forEach((n, i) => { const g = galaxies.get(n.galaxy), a = i * 2.399, d = 4 + Math.sqrt(i) * 6; n.x = g.ax + Math.cos(a) * d; n.y = g.ay + Math.sin(a) * d; });
+  const localCounts=new Map();nodes.forEach(n=>{const g=galaxies.get(n.galaxy),i=localCounts.get(g.id)||0;localCounts.set(g.id,i+1);const a=i*2.399,d=n.kind==='section'?0:12+Math.sqrt(i)*10;n.x=g.ax+Math.cos(a)*d;n.y=g.ay+Math.sin(a)*d*.7;});
   const sim = forceSimulation(nodes)
-    .force("link", forceLink(links).id(d => d.id).distance(l => l.type === "contains" ? 38 : 58).strength(l => l.type === "contains" ? .75 : .25))
-    .force("charge", forceManyBody().strength(d => d.kind === "section" ? -280 : d.kind === "concept" ? -40 : -95).distanceMax(380))
+    .force("link", forceLink(links).id(d => d.id).distance(l => l.type === "contains" ? 32 : 48).strength(l => l.type === "contains" ? .55 : .15))
+    .force("charge", forceManyBody().strength(d => d.kind === "section" ? -90 : d.kind === "concept" ? -18 : -42).distanceMax(180))
     .force("collide", forceCollide().radius(d => d.r + 5))
-    .force("gx", forceX(d => galaxies.get(d.galaxy).ax).strength(.065))
-    .force("gy", forceY(d => galaxies.get(d.galaxy).ay).strength(.065))
+    .force("gx", forceX(d => galaxies.get(d.galaxy).ax).strength(d=>d.kind==='section'?.17:.105))
+    .force("gy", forceY(d => galaxies.get(d.galaxy).ay).strength(d=>d.kind==='section'?.17:.105))
     .alphaDecay(.028).velocityDecay(.36);
   const stars = [];
   if (wantStars) for (let i = 0, total = mini ? 90 : nodes.length ? 260 : 620; i < total; i++) {
     const u = Math.random() * 2 - 1, angle = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u), r = .72 + Math.random() * .3;
     stars.push({ x: s * Math.cos(angle) * r, y: u * r, z: s * Math.sin(angle) * r, a: .22 + Math.random() * .5, tw: .3 + Math.random(), phase: Math.random() * 6.28, size: Math.random() < .035 ? 1.6 : .7 });
   }
-  const view = { x: 0, y: 0, k: 1 }, target = { x: 0, y: 0, k: 1 };
+  const view = { x: 0, y: 0, k: 1, angle:0 }, target = { x: 0, y: 0, k: 1, angle:0 };
+  let inputActive=false;
   let userMoved = false, hover = null, selected = focusId ? byId.get(focusId) : null, dragging = null, query = "", hudT = 0, hudFor = selected;
   const filter = { concepts: opts.concepts ?? Boolean(focusId && byId.get(focusId)?.kind === "concept"), structure: true };
   const shown = n => n.kind === "concept" ? filter.concepts : filter.structure || n.kind === "lecture" || n.kind === "note";
-  const toWorld = (x, y) => ({ x: (x - W / 2 - view.x) / view.k, y: (y - H / 2 - view.y) / view.k });
+  const toWorld = (x, y) => worldPoint({x,y},view,W,H);
   function wake() { needsDraw = true; if (!destroyed && !document.hidden && raf === null) raf = requestAnimationFrame(frame); }
   function fit(instant = false) {
     const points = (focusId ? nodes.filter(n => n.id === focusId || nbrs.get(focusId)?.has(n.id)) : nodes).filter(shown);
     if (!points.length || W < 1 || H < 1) return;
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const n of points) { x0 = Math.min(x0, n.x - n.r); y0 = Math.min(y0, n.y - n.r); x1 = Math.max(x1, n.x + n.r); y1 = Math.max(y1, n.y + n.r); }
-    const padX = mini ? Math.min(26, W * .15) : Math.min(W * .16, 145);
-    const padTop = mini ? 26 : Math.min(125, H * .24), padBottom = mini ? 26 : Math.min(130, H * .23);
-    const k = clamp(Math.min(Math.max(20, W - padX * 2) / (x1 - x0 || 1), Math.max(20, H - padTop - padBottom) / (y1 - y0 || 1)), .08, mini ? 1.6 : 2.2);
-    Object.assign(target, { k, x: -(x0 + x1) / 2 * k, y: -(y0 + y1) / 2 * k + (padTop - padBottom) / 2 });
+    const bounds=points.map(n=>({x:n.x,y:n.y,r:n.r}));if(!mini&&!focusId)for(const g of galaxies.values())if(points.some(n=>n.galaxy===g.id))bounds.push({x:g.core?.x??g.ax,y:g.core?.y??g.ay,r:g.footprint*.8});
+    Object.assign(target,overviewCamera(bounds,W,H,{mini,angle:target.angle}));
     if (instant) Object.assign(view, target);
     wake();
   }
+  function home(){userMoved=false;view.angle=Math.atan2(Math.sin(view.angle),Math.cos(view.angle));target.angle=0;fit();}
   function hit(sx, sy) {
     const p = toWorld(sx, sy); let best = null, distance = Infinity;
     for (const n of nodes) {
       if (!shown(n) || n.vis < .3) continue;
       const d = Math.hypot(n.x + n.dx - p.x, n.y + n.dy - p.y);
-      if (d < Math.max(n.r * 2.2, 14 / view.k) && d < distance) { best = n; distance = d; }
+      if (d < Math.max(n.r * 2.2, (W<650?22:16) / view.k) && d < distance) { best = n; distance = d; }
     }
     return best;
   }
@@ -120,27 +126,29 @@ export function mountGraph(host, data, opts = {}) {
   listen(canvas, "pointerdown", e => {
     if (e.button !== undefined && e.button !== 0) return;
     canvas.setPointerCapture?.(e.pointerId); canvas.focus?.({ preventScroll: true });
+    Object.assign(target,view);
     pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
     if (pointers.size > 1) {
       releaseDrag(); multiGesture = true; moved = true; downAt = null;
       const [a, b] = [...pointers.values()];
-      pinch = { d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), k: target.k, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: target.x, y: target.y };
+      pinch = { d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), k: target.k, fingerAngle:Math.atan2(b.y-a.y,b.x-a.x), angle:target.angle, anchor:toWorld((a.x+b.x)/2,(a.y+b.y)/2) };
       return;
     }
-    moved = false; multiGesture = false; downAt = { id: e.pointerId, x: e.offsetX, y: e.offsetY, vx: target.x, vy: target.y };
-    if (!mini) { const n = hit(e.offsetX, e.offsetY); if (n) { dragging = n; n.fx = n.x; n.fy = n.y; sim.alphaTarget(.12).restart(); } }
+    moved = false; multiGesture = false; downAt = { id: e.pointerId, x: e.offsetX, y: e.offsetY, vx: target.x, vy: target.y,angle:target.angle,rotate:Boolean(e.shiftKey||e.altKey) };
+    if (!mini&&!downAt.rotate) { const n = hit(e.offsetX, e.offsetY); if (n) { dragging = n; n.fx = n.x; n.fy = n.y; sim.alphaTarget(.12).restart(); } }
     wake();
   });
   listen(canvas, "pointermove", e => {
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.offsetX, y: e.offsetY });
     if (pinch && pointers.size >= 2 && !mini) {
       const [a, b] = [...pointers.values()], cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
-      const k = clamp(pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d, .08, 6);
-      const wx = (pinch.cx - W / 2 - pinch.x) / pinch.k, wy = (pinch.cy - H / 2 - pinch.y) / pinch.k;
-      Object.assign(target, { k, x: cx - W / 2 - wx * k, y: cy - H / 2 - wy * k }); Object.assign(view, target); userMoved = true; wake(); return;
+      const k = clamp(pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d, .04, 6);
+      const delta=Math.atan2(b.y-a.y,b.x-a.x)-pinch.fingerAngle,angle=pinch.angle+Math.atan2(Math.sin(delta),Math.cos(delta)),anchor=rotatePoint(pinch.anchor,angle);
+      Object.assign(target, { k,angle,x:cx-W/2-anchor.x*k,y:cy-H/2-anchor.y*k }); Object.assign(view, target); userMoved = true; wake(); return;
     }
     if (multiGesture) return;
     if (downAt && Math.hypot(e.offsetX - downAt.x, e.offsetY - downAt.y) > 5) moved = true;
+    if(downAt?.rotate&&moved&&!mini){const delta=(e.offsetX-downAt.x)*.006,p=rotatePoint({x:downAt.vx,y:downAt.vy},delta);Object.assign(target,{angle:downAt.angle+delta,x:p.x,y:p.y});Object.assign(view,target);userMoved=true;wake();return;}
     if (dragging && moved) { const p = toWorld(e.offsetX, e.offsetY); dragging.fx = p.x; dragging.fy = p.y; userMoved = true; wake(); return; }
     if (downAt && moved && !mini) { target.x = downAt.vx + e.offsetX - downAt.x; target.y = downAt.vy + e.offsetY - downAt.y; Object.assign(view, target); userMoved = true; wake(); return; }
     if (e.pointerType === "mouse") { const next = hit(e.offsetX, e.offsetY); if (next !== hover) { hover = next; wake(); } canvas.style.cursor = hover || mini ? "pointer" : "grab"; }
@@ -149,7 +157,7 @@ export function mountGraph(host, data, opts = {}) {
     if (!pointers.has(e.pointerId)) return;
     const was = dragging, allowTap = !cancelled && !multiGesture && !moved && downAt?.id === e.pointerId;
     pointers.delete(e.pointerId); releaseDrag();
-    if (allowTap) {
+    if (allowTap&&!downAt?.rotate) {
       if (mini) onOpen(null);
       else { const n = was || hit(e.offsetX, e.offsetY); if (n && selected === n) onOpen(n); else select(n); }
     }
@@ -168,10 +176,11 @@ export function mountGraph(host, data, opts = {}) {
   }, { passive: false });
   listen(canvas, "keydown", e => {
     if (mini) return;
-    if (["+", "=", "-", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "0", "Escape", "Enter"].includes(e.key)) e.preventDefault();
+    if (["+", "=", "-", "[", "]", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "0", "Escape", "Enter"].includes(e.key)) e.preventDefault();
     if (e.key === "Escape") select(null);
     else if (e.key === "Enter" && selected) onOpen(selected);
-    else if (e.key === "0") { userMoved = false; fit(); }
+    else if (e.key === "0") home();
+    else if (e.key === "[" || e.key === "]") { target.angle+=(e.key==='['?-1:1)*Math.PI/12;userMoved=true; }
     else if (["+", "=", "-"].includes(e.key)) { const k = clamp(target.k * (e.key === "-" ? .8 : 1.25), .08, 6); target.x *= k / target.k; target.y *= k / target.k; target.k = k; userMoved = true; }
     else if (e.key.startsWith("Arrow")) { target.x += e.key === "ArrowLeft" ? 35 : e.key === "ArrowRight" ? -35 : 0; target.y += e.key === "ArrowUp" ? 35 : e.key === "ArrowDown" ? -35 : 0; userMoved = true; }
     wake();
@@ -192,28 +201,20 @@ export function mountGraph(host, data, opts = {}) {
     if (destroyed) return;
     const r = host.getBoundingClientRect(); W = Math.max(0, r.width); H = Math.max(0, r.height); dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); canvas.style.width = W + "px"; canvas.style.height = H + "px";
-    if (!userMoved) fit(true); wake();
+    if (!userMoved&&!inputActive) fit(true); wake();
   });
   ro.observe(host);
-  function ring(x, y, r, color, width = 1, dash = [], a0 = 0, a1 = Math.PI * 2) {
-    ctx.beginPath(); ctx.setLineDash(dash); ctx.arc(x, y, Math.max(0, r), a0, a1); ctx.strokeStyle = color; ctx.lineWidth = width / view.k; ctx.stroke(); ctx.setLineDash([]);
-  }
   function text(str, x, y, { font = SANS, size = 11, weight = 400, color = rgba(palette.ink, .9), align = "left", base = "middle", spacing = 0 } = {}) {
-    ctx.font = `${weight} ${size / view.k}px ${font}`; ctx.textAlign = align; ctx.textBaseline = base; ctx.fillStyle = color;
-    if ("letterSpacing" in ctx) ctx.letterSpacing = `${spacing / view.k}px`;
+    ctx.font = `${weight} ${size}px ${font}`; ctx.textAlign = align; ctx.textBaseline = base; ctx.fillStyle = color;
+    if ("letterSpacing" in ctx) ctx.letterSpacing = `${spacing}px`;
     ctx.fillText(str, x, y); if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
   }
   function atmosphere(t) {
     if (!stars.length) return;
-    const empty = !nodes.length, radius = empty ? Math.min(W * .3, H * .23, 174) : Math.max(W, H) * .61;
-    const cx = W / 2 + view.x * .035, cy = empty ? H * .4 : H / 2 + view.y * .035;
+    const empty = !nodes.length, radius = Math.max(W,H)*.65;
+    const cx=W/2+view.x*.025,cy=H/2+view.y*.025;
     const rotation = reduceMotion ? .3 : t * .000023, cr = Math.cos(rotation), sr = Math.sin(rotation);
-    if (empty && !mini) {
-      const haloSize = radius * 1.9, gradient = ctx.createRadialGradient(cx, cy, radius * .1, cx, cy, haloSize);
-      gradient.addColorStop(0, rgba(palette.halo, sky ? .07 : .10)); gradient.addColorStop(.5, rgba(palette.halo, sky ? .05 : .04)); gradient.addColorStop(1, rgba(palette.halo, 0));
-      ctx.fillStyle = gradient; ctx.fillRect(cx - haloSize, cy - haloSize, haloSize * 2, haloSize * 2);
-      ctx.save(); ctx.translate(cx, cy); ctx.rotate(-.38); ctx.scale(1.19, .34); ctx.beginPath(); ctx.arc(0, 0, radius * 1.07, 0, Math.PI * 2); ctx.strokeStyle = rgba(palette.star, sky ? .16 : .17); ctx.lineWidth = .7; ctx.stroke(); ctx.restore();
-    }
+    if(empty&&!mini){const size=Math.min(W*.95,H*.7,550);ctx.save();ctx.translate(cx,cy);ctx.rotate(reduceMotion?-.2:t*.000026-.2);ctx.globalAlpha=.88;ctx.drawImage(galaxySprite(sky,0),-size/2,-size/2,size,size);ctx.restore();}
     for (const s of stars) {
       const x = s.x * cr - s.z * sr, z = s.x * sr + s.z * cr, depth = clamp((z + 1.2) / 2.2, .05, 1);
       const twinkle = reduceMotion ? 1 : .8 + .2 * Math.sin(t * .0007 * s.tw + s.phase);
@@ -231,9 +232,10 @@ export function mountGraph(host, data, opts = {}) {
     const frameInterval = W < 650 || nodes.length > 450 ? 1000 / 30 : 1000 / 60;
     if (!needsDraw && !reduceMotion && time - last < frameInterval - 1) { raf = requestAnimationFrame(frame); return; }
     const t = time - t0; last = time; needsDraw = false;
-    if (!settled && sim.alpha() < .06) { settled = true; if (!userMoved) fit(); }
+    if (!settled && sim.alpha() < .06) { settled = true; if (!userMoved&&!inputActive) fit(); }
     const e = reduceMotion ? 1 : .12;
     view.x += (target.x - view.x) * e; view.y += (target.y - view.y) * e; view.k += (target.k - view.k) * e;
+    view.angle += (target.angle-view.angle)*e;
     const active = selected || hover, q = query.toLowerCase(), lit = active ? new Set([active.id, ...nbrs.get(active.id)]) : null;
     for (const n of nodes) {
       const alive = reduceMotion || t > n.born ? 1 : 0, want = !shown(n) ? 0 : lit ? lit.has(n.id) ? 1 : .13 : q ? n.title.toLowerCase().includes(q) ? 1 : .13 : 1;
@@ -242,17 +244,16 @@ export function mountGraph(host, data, opts = {}) {
       n.dx = Math.sin(t * .00028 + n.phase) * amp; n.dy = Math.cos(t * .00024 + n.phase * 1.3) * amp;
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H); atmosphere(t);
-    ctx.translate(W / 2 + view.x, H / 2 + view.y); ctx.scale(view.k, view.k);
+    ctx.translate(W / 2 + view.x, H / 2 + view.y); ctx.rotate(view.angle); ctx.scale(view.k, view.k);
     for (const g of galaxies.values()) { g.sx = 0; g.sy = 0; g.n = 0; g.far = 0; }
     for (const n of nodes) if (n.vis > .05) { const g = galaxies.get(n.galaxy); g.sx += n.x; g.sy += n.y; g.n++; }
-    for (const g of galaxies.values()) if (g.n) { g.cx += (g.sx / g.n - g.cx) * .1; g.cy += (g.sy / g.n - g.cy) * .1; }
+    for (const g of galaxies.values()) if (g.n) { g.cx += ((g.core?.x??g.sx/g.n)-g.cx)*.12;g.cy += ((g.core?.y??g.sy/g.n)-g.cy)*.12; }
     for (const n of nodes) if (n.vis > .05) { const g = galaxies.get(n.galaxy); g.far = Math.max(g.far, Math.hypot(n.x - g.cx, n.y - g.cy)); }
     for (const g of galaxies.values()) {
-      if (!g.n) continue; g.rad += (g.far + 28 - g.rad) * (reduceMotion ? 1 : .1);
-      if (mini || g.n < 2) continue;
-      const color = colorOf({ galaxy: g.id }), dim = active && active.galaxy !== g.id ? .32 : 1, spin = (reduceMotion ? 0 : t * .000037) + g.spin;
-      ring(g.cx, g.cy, g.rad, rgba(color, .12 * dim)); ring(g.cx, g.cy, g.rad + 7 / view.k, rgba(color, .20 * dim), 1, [1.5 / view.k, 8 / view.k], spin, spin + Math.PI * .7);
-      ring(g.cx, g.cy, g.rad + 7 / view.k, rgba(color, .4 * dim), 1, [], spin + Math.PI * 1.15, spin + Math.PI * 1.3);
+      if (!g.n) continue;g.rad+=(Math.max(g.footprint,g.far+16)-g.rad)*(reduceMotion?1:.08);
+      if(mini)continue;
+      const dim=active&&active.galaxy!==g.id?.48:1,spin=g.spin+(reduceMotion?0:t*.000026);
+      ctx.save();ctx.translate(g.cx,g.cy);ctx.rotate(spin);ctx.globalAlpha=dim*(sky?.93:.88);const size=g.rad*3.2;ctx.drawImage(galaxySprite(sky,g.index),-size/2,-size/2,size,size);ctx.restore();
     }
     ctx.globalCompositeOperation = sky ? "source-over" : "lighter";
     for (const l of links) {
@@ -260,47 +261,36 @@ export function mountGraph(host, data, opts = {}) {
       l.vis += (want - l.vis) * (reduceMotion ? 1 : .15); if (l.vis < .02) continue;
       const sx = s.x + s.dx, sy = s.y + s.dy, tx = d.x + d.dx, ty = d.y + d.dy;
       ctx.beginPath(); ctx.moveTo(sx, sy);
-      if (l.type === "mentions") ctx.quadraticCurveTo((sx + tx) / 2 + (ty - sy) * .13, (sy + ty) / 2 - (tx - sx) * .13, tx, ty); else ctx.lineTo(tx, ty);
-      ctx.strokeStyle = rgba(colorOf(s.kind === "concept" ? d : s), (highlighted ? .8 : palette.edge) * l.vis); ctx.lineWidth = (highlighted ? 1.15 : .65) / view.k; ctx.stroke();
+      ctx.quadraticCurveTo((sx+tx)/2+(ty-sy)*.13,(sy+ty)/2-(tx-sx)*.13,tx,ty);
+      ctx.strokeStyle = rgba(colorOf(s.kind === "concept" ? d : s), (highlighted ? .34 : palette.edge) * l.vis); ctx.lineWidth = (highlighted ? .9 : .5) / view.k; ctx.stroke();
     }
     for (const n of nodes) {
       if (n.vis < .02) continue;
       const c = colorOf(n), x = n.x + n.dx, y = n.y + n.dy, birth = reduceMotion ? 1 : ease((t - n.born) / 900), pulse = reduceMotion ? 1 : 1 + Math.sin(t * .0009 + n.phase) * .05;
-      const r = Math.max(n.r, 1.5 / view.k) * birth * pulse; if (r <= 0) continue;
-      const size = r * (n === active ? 13 : n.kind === "section" ? 11 : 7);
-      ctx.globalAlpha = n.vis * (sky ? .45 : .8); ctx.drawImage(glow(c), x - size, y - size, size * 2, size * 2); ctx.globalAlpha = n.vis;
-      if (n.kind === "lecture" || n.kind === "module") ring(x, y, r * 1.5, rgba(c, .84), 1);
-      ctx.beginPath(); ctx.arc(x, y, r * (n.kind === "concept" ? .68 : .85), 0, Math.PI * 2); ctx.fillStyle = sky ? c : palette.core; ctx.fill();
-      if (n.kind === "section") {
-        ring(x, y, r * 2.5, rgba(c, .28));
-        if (n === active) { ctx.beginPath(); ctx.moveTo(x - r * 3.4, y); ctx.lineTo(x + r * 3.4, y); ctx.moveTo(x, y - r * 3.4); ctx.lineTo(x, y + r * 3.4); ctx.strokeStyle = rgba(c, .25); ctx.lineWidth = .5 / view.k; ctx.stroke(); }
-      }
+      const r = Math.max(n.r, .9 / view.k) * birth * pulse; if (r <= 0) continue;
+      const size = r * (n === active ? 17 : n.kind === "section" ? 14 : 8);
+      ctx.globalAlpha=n.vis*(sky?.9:.95);ctx.drawImage(glow(c),x-size,y-size,size*2,size*2);
+      ctx.globalAlpha=n.vis;ctx.beginPath();ctx.arc(x,y,r*.4,0,Math.PI*2);ctx.fillStyle=palette.core;ctx.fill();
+      if(n.kind==='section'||n===active){const flare=r*(n===active?4.8:3.4);ctx.beginPath();ctx.moveTo(x-flare,y);ctx.lineTo(x+flare,y);ctx.moveTo(x,y-flare*.75);ctx.lineTo(x,y+flare*.75);ctx.strokeStyle=rgba(palette.core,.4*n.vis);ctx.lineWidth=.5/view.k;ctx.stroke();}
     }
-    ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;ctx.setTransform(dpr,0,0,dpr,0,0);
     if (hudFor && !mini) {
       hudT += ((selected === hudFor ? 1 : 0) - hudT) * (reduceMotion ? 1 : .12);
       if (hudT > .01) {
-        const n = hudFor, color = colorOf(n), x = n.x + n.dx, y = n.y + n.dy, k = ease(hudT), base = Math.max(n.r * 2.2, 9 / view.k), spin = reduceMotion ? 0 : t * .00022;
-        ctx.globalAlpha = k;
-        ring(x, y, base + 6 / view.k * k, rgba(palette.ink, .65));
-        ring(x, y, base + 17 / view.k * k, rgba(palette.ink, .27), .7, [1 / view.k, 5 / view.k], spin, spin + Math.PI * 1.5);
-        ring(x, y, base + 17 / view.k * k, rgba(color, .8), 1.2, [], -spin, -spin + Math.PI * .38);
-        ring(x, y, base + 29 / view.k * k, rgba(color, .18), .7, [], spin * .5 + 2.2, spin * .5 + 3.8);
-        // Keep the canvas readout modest; the adjacent inspector is the full, readable label.
-        const direction = x * view.k + W / 2 + view.x > W - 240 ? -1 : 1;
-        const lx = x + direction * (base + 45 / view.k), ly = y - (base + 16 / view.k);
-        ctx.beginPath(); ctx.moveTo(x + direction * base, y - base * .5); ctx.lineTo(lx, ly); ctx.strokeStyle = rgba(palette.ink, .4); ctx.lineWidth = .7 / view.k; ctx.stroke();
-        text(n.title.length > 28 ? n.title.slice(0, 27) + "…" : n.title, lx + direction * 6 / view.k, ly - 3 / view.k, { size: 12, weight: 500, align: direction < 0 ? "right" : "left" });
-        text(`${n.kind.toUpperCase()} · ${nbrs.get(n.id).size} LINKS`, lx + direction * 6 / view.k, ly + 12 / view.k, { font: MONO, size: 8, color: rgba(color, .9), align: direction < 0 ? "right" : "left", spacing: .8 });
+        const n=hudFor,p=screenPoint({x:n.x+n.dx,y:n.y+n.dy},view,W,H);
+        const title=n.title.length>36?n.title.slice(0,34)+'…':n.title;
+        const half=Math.min(W-32,title.length*6.7)/2;
+        ctx.globalAlpha=ease(hudT);
+        text(title,clamp(p.x,half+16,W-half-16),clamp(p.y+27,100,H-80),{size:12,weight:500,align:'center'});
       }
     }
     // A few collision-free landmarks; individual names appear on hover, tap or search.
-    const candidates = [...new Set([...(hover ? [hover] : []), ...nodes.filter(n => q ? n.title.toLowerCase().includes(q) : n.kind === "section"), ...(!q && !mini && view.k > 1.8 ? nodes.filter(n => n.kind === "module") : [])])];
+    const candidates = [...new Set([...(hover ? [hover] : []), ...nodes.filter(n => q ? n.title.toLowerCase().includes(q) : n.kind === "section"), ...(!q && !mini && userMoved && view.k > 2.4 ? nodes.filter(n => n.kind === "module") : [])])];
     const occupied = [], labelLimit = mini ? 2 : W < 600 ? 3 : 5;
     for (const n of candidates) {
       if (occupied.length >= labelLimit) break;
       if (n.vis < .35 || n === selected) continue;
-      const x = n.x + n.dx, y = n.y + n.dy, sx = x * view.k + W / 2 + view.x, sy = y * view.k + H / 2 + view.y;
+      const x=n.x+n.dx,y=n.y+n.dy,p=screenPoint({x,y},view,W,H),sx=p.x,sy=p.y;
       if (sx < 12 || sx > W - 12 || sy < (mini ? 12 : 95) || sy > H - (mini ? 24 : 85)) continue;
       const title = n.title.length > 27 ? n.title.slice(0, 25) + "…" : n.title;
       const width = Math.min(W - 24, title.length * 6.4 + 12), left = clamp(sx - width / 2, 12, Math.max(12, W - width - 12)), top = sy + 13;
@@ -308,22 +298,25 @@ export function mountGraph(host, data, opts = {}) {
       if (occupied.some(r => box.left < r.right + 10 && box.right > r.left - 10 && box.top < r.bottom + 7 && box.bottom > r.top - 7)) continue;
       if (selected && Math.hypot((selected.x + selected.dx - x) * view.k, (selected.y + selected.dy - y) * view.k) < 155) continue;
       occupied.push(box);ctx.globalAlpha = n.vis;
-      text(title, (left + width / 2 - W / 2 - view.x) / view.k, (top - H / 2 - view.y) / view.k, {size:n === hover ? 11 : 10,weight:500,color:rgba(n.kind === "section" ? colorOf(n) : palette.ink,.9),align:"center",base:"top"});
+      text(title, left + width / 2, top, {size:n === hover ? 11 : 10,weight:500,color:rgba(n.kind === "section" && !sky ? colorOf(n) : palette.ink,.9),align:"center",base:"top"});
     }
     ctx.globalAlpha = 1;
-    const movingView = Math.abs(target.x - view.x) + Math.abs(target.y - view.y) + Math.abs(target.k - view.k) > .02;
+    const movingView = Math.abs(target.x - view.x) + Math.abs(target.y - view.y) + Math.abs(target.k - view.k) + Math.abs(target.angle-view.angle) > .02;
     if (raf === null && (!reduceMotion || !settled || movingView)) raf = requestAnimationFrame(frame);
   }
   sim.on("tick.lumen", wake);
-  sim.on("end.lumen", () => { settled = true; if (!userMoved) fit(); wake(); });
+  sim.on("end.lumen", () => { settled = true; if (!userMoved&&!inputActive) fit(); wake(); });
   updatePreferences();
   if (document.hidden) sim.stop();
   return {
     setFilter(f) { Object.assign(filter, f); if (selected && !shown(selected)) select(null); wake(); },
     setQuery(s) { query = String(s || ""); wake(); },
-    focus(id) { const n = byId.get(id); if (!n) return; if(n.kind === "concept")filter.concepts = true; select(n); const k = Math.max(target.k, 1.6); Object.assign(target, { k, x: -n.x * k, y: -n.y * k }); userMoved = true; wake(); },
+    focus(id) { const n=byId.get(id);if(!n)return;if(n.kind==='concept')filter.concepts=true;select(n);const k=Math.max(target.k,1.6),p=rotatePoint(n,target.angle),center=overviewCamera([{x:0,y:0}],W,H,{mini});Object.assign(target,{k,x:-p.x*k,y:center.y-p.y*k});userMoved=true;wake(); },
+    setInputActive(active) { inputActive=Boolean(active);if(!inputActive&&!userMoved)fit();wake(); },
+    zoomBy(factor) { if(!Number.isFinite(factor)||factor<=0)return;const k=clamp(target.k*factor,.04,6),ratio=k/target.k;target.x*=ratio;target.y*=ratio;target.k=k;userMoved=true;wake(); },
+    rotateBy(angle) { if(!Number.isFinite(angle))return;const p=rotatePoint(target,angle);target.x=p.x;target.y=p.y;target.angle+=angle;userMoved=true;wake(); },
     clear() { select(null); },
-    fit() { userMoved = false; fit(); },
+    fit() { home(); },
     destroy() { if (destroyed) return; destroyed = true; if (raf !== null) cancelAnimationFrame(raf); raf = null; sim.on("tick.lumen", null).on("end.lumen", null).stop(); releaseDrag(); ro.disconnect(); cleanups.forEach(fn => fn()); canvas.remove(); },
   };
 }

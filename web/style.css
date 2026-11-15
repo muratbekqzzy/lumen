@@ -1,13 +1,13 @@
 /* Two atmospheres: the depth of Space and the softness of Sky. */
 :root {
-  --bg: #090a16; --panel: #121321; --side: rgba(11, 12, 25, .94);
-  --ink: #f0edf9; --ink-2: #c9c4dc; --muted: #9792ae;
+  --bg: #21132f; --panel: #2b1c3b; --side: rgba(30, 19, 43, .94);
+  --ink: #fff1fb; --ink-2: #e8d4ee; --muted: #c0a3ca;
   --line: rgba(202, 185, 255, .10); --line-2: rgba(202, 185, 255, .21);
-  --hover: rgba(192, 169, 255, .075); --accent: #cbb7ff;
-  --accent-soft: rgba(182, 152, 255, .12); --mark: rgba(237, 196, 164, .22);
+  --hover: rgba(246, 190, 230, .085); --accent: #f2c5ec;
+  --accent-soft: rgba(235, 162, 224, .14); --mark: rgba(237, 196, 164, .22);
   --ok: #9ddcc6; --warn: #ecc3a4; --danger: #f4a5b6;
   --shadow: 0 2px 8px rgba(3, 3, 13, .12), 0 16px 44px rgba(3, 3, 13, .22);
-  --glass: rgba(20, 20, 39, .66); --radius: 16px;
+  --glass: rgba(45, 28, 62, .68); --radius: 16px;
   --serif: "Inter Tight", "Inter", -apple-system, sans-serif;
   --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -15,13 +15,13 @@
   color-scheme: dark;
 }
 :root[data-theme="sky"], :root[data-theme="light"] {
-  --bg: #e9e2f2; --panel: #f5f1f9; --side: rgba(240, 234, 247, .94);
-  --ink: #2d2544; --ink-2: #514660; --muted: #685576;
+  --bg: #faeafa; --panel: #fff6fc; --side: rgba(251, 238, 250, .94);
+  --ink: #45294f; --ink-2: #66436d; --muted: #815b88;
   --line: rgba(92, 64, 126, .11); --line-2: rgba(92, 64, 126, .22);
-  --hover: rgba(114, 80, 160, .065); --accent: #6e489e;
+  --hover: rgba(180, 104, 165, .065); --accent: #955586;
   --accent-soft: rgba(135, 94, 188, .10); --mark: rgba(225, 165, 119, .26);
   --ok: #25765f; --warn: #9b622b; --danger: #ae3c61;
-  --glass: rgba(247, 242, 251, .68);
+  --glass: rgba(255, 246, 253, .74);
   --shadow: 0 2px 7px rgba(72, 45, 103, .035), 0 16px 44px rgba(72, 45, 103, .07);
   color-scheme: light;
 }
@@ -467,17 +467,17 @@ body[data-scene="reading"] .lumen-atmosphere { opacity: .24; }
 .aura-layer i { display: block; position: absolute; pointer-events: none; }
 .aura-cloud { inset: -10%; transform: translate3d(0,0,0); animation: cloudDrift 42s ease-in-out infinite alternate; }
 .aura-space .aura-cloud {
-  background: radial-gradient(ellipse 48% 40% at 22% 74%, rgba(130, 72, 205, .22), transparent 85%),
-    radial-gradient(ellipse 48% 48% at 76% 29%, rgba(61, 100, 157, .17), transparent 85%),
-    radial-gradient(ellipse 32% 27% at 64% 90%, rgba(181, 100, 156, .085), transparent 90%),
-    radial-gradient(ellipse 40% 20% at 45% 45%, rgba(113, 77, 175, .06), transparent);
+  background: radial-gradient(ellipse 56% 55% at 28% 62%, rgba(227, 126, 198, .42), rgba(227, 126, 198, 0) 82%),
+    radial-gradient(ellipse 57% 56% at 74% 34%, rgba(171, 139, 244, .42), rgba(171, 139, 244, 0) 85%),
+    radial-gradient(ellipse 40% 38% at 55% 75%, rgba(252, 190, 220, .18), rgba(252, 190, 220, 0) 90%),
+    radial-gradient(ellipse 50% 35% at 42% 32%, rgba(161, 182, 241, .18), rgba(161, 182, 241, 0) 85%);
 }
 .aura-sky { opacity: 0; }
 .aura-sky .aura-cloud {
-  background: radial-gradient(ellipse 55% 36% at 18% 81%, rgba(241, 194, 191, .88), transparent 86%),
-    radial-gradient(ellipse 42% 46% at 83% 22%, rgba(174, 193, 221, .72), transparent 86%),
-    radial-gradient(ellipse 42% 38% at 52% 38%, rgba(198, 174, 226, .58), transparent 90%),
-    radial-gradient(ellipse 48% 24% at 65% 87%, rgba(244, 222, 210, .85), transparent 85%);
+  background: radial-gradient(ellipse 57% 58% at 24% 66%, rgba(255, 181, 218, .7), rgba(255, 181, 218, 0) 85%),
+    radial-gradient(ellipse 60% 57% at 76% 32%, rgba(195, 170, 250, .68), rgba(195, 170, 250, 0) 85%),
+    radial-gradient(ellipse 48% 40% at 55% 76%, rgba(255, 238, 240, .94), rgba(255, 238, 240, 0) 86%),
+    radial-gradient(ellipse 48% 40% at 38% 27%, rgba(202, 216, 255, .48), rgba(202, 216, 255, 0) 88%);
 }
 :root[data-theme="sky"] .aura-sky, :root[data-theme="light"] .aura-sky { opacity: 1; }
 :root[data-theme="sky"] .aura-space, :root[data-theme="light"] .aura-space { opacity: 0; }
@@ -669,4 +669,51 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
  .import-destination { grid-template-columns: 1fr; }
  .import-destination > label, .import-summary { grid-column: 1; }
  .slides-toolbar { align-items: flex-start; }
+}
+
+/* The entrance is a scene: only search and quiet navigation sit above it. */
+.immersive-universe .graph-ui { display: block; top: 30px; left: 50%; right: auto; width: min(470px,calc(100% - 70px)); transform: translateX(-50%); }
+.immersive-universe .graph-tools { position: relative; display: flex; width: 100%; max-width: none; flex-wrap: nowrap; align-items: center; gap: 0; padding: 5px; border: 1px solid var(--line-2); background: var(--glass); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); box-shadow: 0 7px 38px rgba(64,25,79,.08); }
+.immersive-universe .graph-tools input { flex: 1; min-width: 0; width: auto; height: 44px; margin: 0; padding: 8px 9px; font: 400 16px/1.4 var(--sans); color: var(--ink); }
+.immersive-universe .graph-tools input::placeholder { color: var(--muted); opacity: 1; }
+.universe-search-icon { margin-left: 12px; flex: none; color: var(--muted); }
+.universe-button { width: 44px; min-width: 44px; height: 44px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink-2); cursor: pointer; font: 300 23px var(--sans); list-style: none; }
+.universe-button:hover { color: var(--ink); background: var(--hover); }
+.universe-button::-webkit-details-marker { display: none; }
+.universe-options { position: static; }
+.universe-options-panel { position: absolute; right: 0; top: calc(100% + 12px); width: min(290px,80vw); padding: 14px; border: 1px solid var(--line-2); border-radius: 20px; background: var(--panel); box-shadow: var(--shadow); z-index: 9; }
+.universe-options:not([open]) .universe-options-panel { display: none; }
+.view-options-row { display: flex; gap: 5px; align-items: center; }
+.view-options-row + .view-options-row { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.view-options-row span { color: var(--muted); font-size: 10px; padding-left: 4px; }
+.view-options-row .pill { min-height: 36px; font-size: 10px; }
+.universe-search-results { position: absolute; top: calc(100% + 10px); left: 0; right: 0; z-index: 10; max-height: min(360px,43dvh); overflow-y: auto; padding: 6px; border: 1px solid var(--line-2); border-radius: 20px; background: var(--panel); box-shadow: var(--shadow); touch-action: pan-y; }
+.universe-search-results[hidden] { display: none; }
+.universe-search-results button { display: flex; gap: 10px; align-items: center; justify-content: space-between; width: 100%; min-height: 48px; border: 0; border-radius: 14px; padding: 10px 13px; background: transparent; color: var(--ink-2); text-align: left; cursor: pointer; }
+.universe-search-results button:hover, .universe-search-results button[aria-selected="true"] { background: var(--accent-soft); color: var(--ink); }
+.universe-search-results span { font-size: 13px; line-height: 1.5; }
+.universe-search-results small { font-size: 9px; color: var(--muted); flex-shrink: 0; }
+.universe-search-results p { color: var(--muted); padding: 8px 14px; font-size: 12px; }
+.universe-zoom { position: absolute; right: 24px; bottom: 100px; display: grid; padding: 4px; z-index: 2; background: var(--glass); border: 1px solid var(--line); border-radius: 999px; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+.immersive-universe .graph-panel { top: 110px; right: 24px; z-index: 4; padding-top: 24px; }
+.gp-close { position: absolute; right: 9px; top: 8px; width: 34px; height: 34px; font-size: 22px; }
+.immersive-universe .u-dock { left: 50%; right: auto; transform: translateX(-50%); bottom: max(28px,env(safe-area-inset-bottom)); max-width: calc(100% - 48px); }
+.u-continue { display: flex; align-items: center; gap: 13px; max-width: 100%; padding: 13px 18px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2); background: var(--glass); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+.u-continue:hover { text-decoration: none; border-color: var(--line-2); color: var(--ink); }
+.u-continue span { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+.u-continue b { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; font-weight: 400; }
+.immersive-universe .universe-welcome { top: auto; bottom: 38px; width: auto; }
+.immersive-universe .universe-welcome .btn { padding: 13px 24px; }
+@media(max-width:900px) {
+ .immersive-universe .graph-ui { top: max(16px,env(safe-area-inset-top)); left: 70px; right: 14px; width: auto; transform: none; }
+ .immersive-universe .graph-tools { padding: 3px; }
+ .immersive-universe .graph-tools input { font-size: 16px; padding-left: 6px; }
+ .universe-search-icon { margin-left: 10px; width: 16px; }
+ .immersive-universe .graph-panel { top: auto; bottom: max(14px,env(safe-area-inset-bottom)); left: 12px; right: 12px; width: auto; max-height: 40%; }
+ .immersive-universe .u-dock { left: 50%; right: auto; bottom: max(24px,env(safe-area-inset-bottom)); width: max-content; max-width: calc(100% - 40px); }
+ .u-continue { gap: 10px; padding: 12px 15px; }
+ .u-continue b { max-width: 44vw; }
+ .universe-zoom { right: 16px; bottom: max(100px,calc(env(safe-area-inset-bottom) + 84px)); }
+ .menu-btn { top: max(19px,env(safe-area-inset-top)); left: 14px; width: 44px; height: 44px; background: var(--glass); backdrop-filter: blur(18px); }
+ .searchbox input, .dialog input[type=text], .dialog input[type=url], .dialog textarea, .dialog select, .editor textarea { font-size: 16px; }
 }

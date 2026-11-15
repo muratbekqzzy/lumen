@@ -1,6 +1,6 @@
 // Cache the application shell for offline use; account data stays in its own store.
-const CACHE = "lumen-site-v8";
-const FILES = ["./", "index.html", "web/app.js", "web/import.js", "web/pdf.js", "web/pdfjs/pdf.mjs", "web/pdfjs/pdf.worker.mjs", "web/markdown.js", "web/aura.js", "web/force.js", "web/spss.html", "web/graph.js", "web/style.css", "web/icon.svg", "cloud/hosting.js", "cloud/cloud.js", "cloud/migrate.js", "manifest.webmanifest"];
+const CACHE = "lumen-site-v9";
+const FILES = ["./", "index.html", "web/app.js", "web/import.js", "web/pdf.js", "web/pdfjs/pdf.mjs", "web/pdfjs/pdf.worker.mjs", "web/markdown.js", "web/aura.js", "web/force.js", "web/spss.html", "web/graph.js", "web/universe.js", "web/style.css", "web/icon.svg", "cloud/hosting.js", "cloud/cloud.js", "cloud/migrate.js", "manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
 });

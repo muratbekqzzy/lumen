@@ -24,6 +24,8 @@ function interfaceApp({stored = {}, reduced = false, request, graphLoader} = {})
     setAttribute(key, value) { this.attributes.set(key, value); }
     getAttribute(key) { return this.attributes.get(key); }
     addEventListener(type, handler) { this.handlers[type] = handler; }
+    focus() { document.activeElement=this;this.handlers.focus?.({target:this}); }
+    blur() { if(document.activeElement===this){document.activeElement=null;this.handlers.blur?.({target:this});} }
     append(el) { this.children.push(el); el.parentElement = this; }
     remove() { this.isConnected = false; }
     querySelector() { return null; }
@@ -101,7 +103,7 @@ test('an empty library still mounts the particle universe without adding sample 
   assert.equal(app.mounts.length, 1);
   assert.equal(app.mounts[0].data.nodes.length, 0);
   assert.equal(app.mounts[0].data.edges.length, 0);
-  assert.match(app.elements.get('main').children[0].innerHTML, /A little light becomes a universe/);
+  assert.match(app.elements.get('main').children[0].innerHTML, /Import a lecture/);
   assert.equal(app.document.documentElement.dataset.view, 'universe');
   assert.equal(app.elements.get('gmotion').getAttribute('aria-pressed'), 'true');
 });
@@ -112,6 +114,18 @@ test('unchanged remote state leaves the active universe camera and canvas intact
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(app.mounts.length, 1);
   assert.equal(app.mounts[0].destroyed, undefined);
+});
+test('the entrance has no greeting, counts or orbit slogan, and groups view settings quietly',async()=>{
+ const app=interfaceApp();await app.run('route()');const html=app.elements.get('main').innerHTML;
+ for(const excess of ['Your knowledge, in orbit','id="gstats"','graph-title','Good morning','Good evening',' connections'])assert(!html.includes(excess));
+ assert(html.includes('<details class="universe-options"'));assert(html.includes('aria-label="Zoom in"'));assert(html.includes('aria-label="Return to the whole universe"'));
+});
+test('search typing never focuses the camera; selecting closes the keyboard and clearing restores the scene',async()=>{
+ const calls={focus:[],input:[],fit:0},data={nodes:[{id:'lecture',kind:'lecture',title:'Lecture 01 - Experiments',section:'s'}],edges:[]};
+ const graph={setQuery(){},setInputActive:value=>calls.input.push(value),focus:id=>calls.focus.push(id),clear(){},fit(){calls.fit++},destroy(){}};
+ const app=interfaceApp({request:()=>data,graphLoader:()=>Promise.resolve({mountGraph:()=>graph})});await app.run('route()');const input=app.elements.get('gq');input.focus();input.value='experiments';input.handlers.input({target:input});assert.equal(calls.focus.length,0);assert(!app.elements.get('gsearch-results').hidden);
+ app.elements.get('gsearch').handlers.submit({preventDefault(){}});assert.deepEqual(calls.focus,['lecture']);assert.equal(app.document.activeElement,null);assert.equal(calls.input.at(-1),false);
+ input.focus();input.value='';input.handlers.input({target:input});input.blur();assert.equal(calls.fit,1);assert(app.elements.get('gsearch-results').hidden);
 });
 test('native view transitions perform rendering inside the update callback', async () => {
   const app = interfaceApp();

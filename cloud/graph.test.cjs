@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const source = fs.readFileSync('web/graph.js', 'utf8').replace(/^import .*;\n/m, '').replace('export function mountGraph', 'function mountGraph');
+const geometry = fs.readFileSync('web/universe.js','utf8').replace(/export /g,'');
+const source = geometry+'\n'+fs.readFileSync('web/graph.js', 'utf8').replace(/^import .*;\n/gm, '').replace('export function mountGraph', 'function mountGraph');
 
 function target() {
  const events = new Map();
@@ -60,9 +61,9 @@ test('empty libraries show decorative particles without inventing graph records'
 test('theme changes redraw dark labels for sky and bright labels for space',()=>{
  const f=fixture({motion:'calm'});f.advance(3);f.graph.focus('n1');f.advance();f.calls.length=0;
  f.document.documentElement.dataset.theme='sky';f.window.dispatch('lumen-theme-changed');f.advance();
- assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(61,49,94,0.9)'));
+ assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(87,49,97,0.9)'));
  f.calls.length=0;f.document.documentElement.dataset.theme='space';f.window.dispatch('lumen-theme-changed');f.advance();
- assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(242,237,255,0.9)'));f.graph.destroy();
+ assert(f.calls.some(x=>x.property==='fillStyle'&&x.value==='rgba(255,241,252,0.9)'));f.graph.destroy();
 });
 test('pointer cancellation never opens or selects a star',()=>{
  const f=fixture({motion:'calm'});f.advance(3);
@@ -94,4 +95,21 @@ test('one selected-star tap opens once; a synthetic double-click does not open i
  const f=fixture({motion:'calm'});f.advance(3);f.graph.focus('n1');f.advance();
  // Focusing centers this star; static mode makes its rendered position exact.
  f.canvas.dispatch('pointerdown',point('mouse',1,400,325));f.canvas.dispatch('pointerup',point('mouse',1,400,325));f.canvas.dispatch('dblclick',point('mouse',1,400,325));assert.equal(f.opens,1);f.graph.destroy();
+});
+test('search keyboard resizing does not magnify or strand the galaxy camera',()=>{
+ const f=fixture({motion:'calm'});f.advance(3);const scale=()=>f.calls.filter(c=>c.method==='scale').at(-1).args[0],before=scale();
+ f.graph.setInputActive(true);f.host.height=330;f.observers[0].fn();f.advance(2);assert.equal(scale(),before);
+ f.host.height=650;f.observers[0].fn();f.graph.setInputActive(false);f.advance(3);assert.equal(scale(),before);
+ f.graph.zoomBy(1.25);f.advance(2);const manual=scale();f.graph.setInputActive(true);f.host.height=330;f.observers[0].fn();f.advance();f.host.height=650;f.observers[0].fn();f.graph.setInputActive(false);f.advance();assert.equal(scale(),manual);f.graph.destroy();
+});
+test('two-finger twisting rotates around the midpoint without becoming a star tap',()=>{
+ const f=fixture({motion:'calm'});f.advance(3);const before=f.calls.filter(c=>c.method==='scale').at(-1).args[0];
+ f.canvas.dispatch('pointerdown',point('touch',1,300,325));f.canvas.dispatch('pointerdown',point('touch',2,500,325));
+ f.canvas.dispatch('pointermove',point('touch',1,400,225));f.canvas.dispatch('pointermove',point('touch',2,400,425));f.calls.length=0;f.advance();
+ assert(f.calls.some(c=>c.method==='rotate'&&Math.abs(c.args[0]-Math.PI/2)<1e-9));assert(Math.abs(f.calls.filter(c=>c.method==='scale').at(-1).args[0]-before)<1e-9);
+ f.canvas.dispatch('pointerup',point('touch',1,400,225));f.canvas.dispatch('pointerup',point('touch',2,400,425));assert.equal(f.selects,0);assert.equal(f.opens,0);f.graph.destroy();
+});
+test('the home control restores overview after rotation and zoom',()=>{
+ const f=fixture({motion:'calm'});f.advance(3);const before=f.calls.filter(c=>c.method==='scale').at(-1).args[0];f.graph.rotateBy(1.1);f.graph.zoomBy(2);f.advance(2);f.graph.fit();f.calls.length=0;f.advance(3);
+ assert.equal(f.calls.filter(c=>c.method==='scale').at(-1).args[0],before);assert(f.calls.some(c=>c.method==='rotate'&&c.args[0]===0));f.graph.destroy();
 });

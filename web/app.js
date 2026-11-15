@@ -530,77 +530,55 @@ function pageLibrary() {
 const KIND_LABEL = { section: "Section", module: "Module", lecture: "Lecture", note: "Note", concept: "Concept" };
 let graphSignature = "";
 async function pageGraph(isCurrent = () => true) {
-  const hr = new Date().getHours();
-  const greet = hr < 5 ? "Good night" : hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
-  const lectures = []; const walk = (n) => kids(n).forEach((k) => { if (k.kind === "lecture") lectures.push(k); walk(k); });
-  walk(TREE); walk(TREE.inbox);
-  lectures.sort(newestFirst);
-  const inbox = kids(TREE.inbox).length;
-  main().innerHTML = `<div class="graph-page space">
+  const lectures=[];const walk=node=>kids(node).forEach(child=>{if(child.kind==='lecture')lectures.push(child);walk(child);});walk(TREE);walk(TREE.inbox);lectures.sort(newestFirst);
+  main().innerHTML=`<div class="graph-page space immersive-universe">
     <div class="graph-host" id="ghost"></div>
-    <div class="graph-ui">
-      <div class="graph-title"><div class="graph-eyebrow">Your knowledge, in orbit</div><h1>${greet}.</h1><p id="gstats" aria-live="polite"></p></div>
-      <div class="graph-tools">
-        <input id="gq" type="search" placeholder="Find a star" aria-label="Find a star in your knowledge" autocomplete="off">
-        <button class="pill on" data-f="structure" aria-pressed="true">Structure</button>
-        <button class="pill ${store.get("universeConcepts",false)?"on":""}" data-f="concepts" aria-pressed="${store.get("universeConcepts",false)}">Concepts</button>
-        <button class="pill" id="gfit" title="Fit universe to screen" aria-label="Fit universe to screen">Fit</button>
-        <button class="pill motion-toggle" id="gmotion" type="button" aria-pressed="true">Drift</button>
-      </div>
-    </div>
+    <div class="graph-ui"><form class="graph-tools" id="gsearch" role="search">
+      <svg class="universe-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+      <input id="gq" type="search" placeholder="Find a star" aria-label="Find a star" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="gsearch-results" autocomplete="off" enterkeyhint="search">
+      <button class="universe-button" id="gfit" type="button" title="Return to the whole universe" aria-label="Return to the whole universe"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <details class="universe-options" id="goptions"><summary class="universe-button" aria-label="Universe view options" title="View options"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.5" fill="var(--panel)"/><circle cx="16" cy="17" r="2.5" fill="var(--panel)"/></svg></summary><div class="universe-options-panel"><div class="view-options-row"><button type="button" class="pill on" data-f="structure" aria-pressed="true">Structure</button><button type="button" class="pill ${store.get('universeConcepts',false)?'on':''}" data-f="concepts" aria-pressed="${store.get('universeConcepts',false)}">Concepts</button><button class="pill motion-toggle" id="gmotion" type="button" aria-pressed="true">Drift</button></div><div class="view-options-row"><button type="button" class="universe-button" id="grotate-left" aria-label="Rotate universe left">↶</button><button type="button" class="universe-button" id="grotate-right" aria-label="Rotate universe right">↷</button><span>Pinch and twist to explore</span></div></div></details>
+      <div class="universe-search-results" id="gsearch-results" role="listbox" aria-label="Matching stars" hidden></div>
+    </form></div>
+    <div class="universe-zoom" aria-label="Zoom controls"><button type="button" class="universe-button" id="gzoom-in" aria-label="Zoom in">+</button><button type="button" class="universe-button" id="gzoom-out" aria-label="Zoom out">−</button></div>
     <aside class="graph-panel" id="gpanel" hidden></aside>
-    <div class="u-dock">
-      ${lectures[0] ? `<a class="u-card" href="#/lecture/${lectures[0].id}"><small>Continue</small><b>${h(lectures[0].title)}</b><span>${h([lectures[0].lecturer, fmtDur(lectures[0].duration)].filter(Boolean).join(" · "))}</span></a>` : ""}
-      ${inbox ? `<a class="u-card" href="#/n/inbox"><small>Inbox</small><b>${inbox} item${inbox > 1 ? "s" : ""} to file</b><span>Drag into a section in the sidebar</span></a>` : ""}
-      ${!kids(TREE).filter(isContainer).length ? `<a class="u-card" href="#/library" id="u-first"><small>Begin</small><b>Create your first section</b><span>Each section becomes its own galaxy</span></a>` : ""}
-    </div>
+    ${lectures[0]?`<div class="u-dock"><a class="u-continue" href="#/lecture/${lectures[0].id}"><span>Continue reading</span><b>${h(lectures[0].title)}</b><span aria-hidden="true">↗</span></a></div>`:''}
   </div>`;
-  $("#u-first")?.addEventListener("click", (e) => { e.preventDefault(); containerDialog({}); });
-  const host = $("#ghost");
-  $("#gmotion").onclick = () => setMotion(motionIsCalm() ? "full" : "calm");
-  updateAtmosphereControls();
-  const [g, data] = await Promise.all([loadGraph(), api("GET", "/api/graph")]);
-  if (!isCurrent() || !host?.isConnected) return;
-  graphSignature = JSON.stringify(data);
-  const counts = data.nodes.reduce((a, n) => (a[n.kind] = (a[n.kind] || 0) + 1, a), {});
-  $("#gstats").textContent = [["section", "sections"], ["module", "modules"], ["lecture", "lectures"], ["note", "notes"], ["concept", "concepts"]].filter(([k]) => counts[k]).map(([k, p]) => `${counts[k]} ${counts[k] === 1 ? p.slice(0, -1) : p}`).concat(`${data.edges.length} link${data.edges.length === 1 ? "" : "s"}`).filter(Boolean).join("  ·  ");
-  if (!data.nodes.length) {
-    $("#gstats").textContent = "A place for everything you discover.";
-    $(".u-dock")?.remove();
-    const welcome = document.createElement("div");
-    welcome.className = "universe-welcome";
-    welcome.innerHTML = `<span class="welcome-kicker">L U M E N</span><h2>A little light becomes a universe.</h2><p>Give a thought a home. Your notes, lectures and ideas will find their own constellations.</p><button class="btn primary" id="begin-universe">${ICONS.plus} Create a section</button>`;
-    host.parentElement.append(welcome);
-    $("#begin-universe").onclick = () => containerDialog({});
+  const host=$('#ghost'),input=$('#gq'),results=$('#gsearch-results'),options=$('#goptions');
+  $('#gsearch').onsubmit=event=>event.preventDefault();
+  $('#gmotion').onclick=()=>setMotion(motionIsCalm()?'full':'calm');updateAtmosphereControls();
+  const [engine,data]=await Promise.all([loadGraph(),api('GET','/api/graph')]);if(!isCurrent()||!host?.isConnected)return;
+  graphSignature=JSON.stringify(data);
+  if(!data.nodes.length){const welcome=document.createElement('div');welcome.className='universe-welcome';welcome.innerHTML='<button class="btn primary" id="begin-universe">Import a lecture</button>';host.parentElement.append(welcome);$('#begin-universe').onclick=()=>openMarkdownImport();}
+  const open=node=>{if(!node)return;go(node.kind==='concept'?`#/concept/${encodeURIComponent(node.title)}`:hrefFor(node));};
+  const focus=node=>{if(node.kind==='concept'){const button=$('[data-f="concepts"]');button?.classList.add('on');button?.setAttribute('aria-pressed','true');store.set('universeConcepts',true);}GRAPH?.focus(node.id);};
+  GRAPH=engine.mountGraph(host,data,{concepts:store.get('universeConcepts',false),onOpen:open,onSelect:(node,neighbors)=>{
+    if(!isCurrent())return;const panel=$('#gpanel');if(!panel)return;if(!node){panel.hidden=true;return;}
+    panel.hidden=false;panel.innerHTML=`<button type="button" class="icon-btn gp-close" aria-label="Close star details">×</button><div class="gp-k">${h(KIND_LABEL[node.kind]||node.kind)}</div><div class="gp-t">${h(node.title)}</div><div class="gp-list">${neighbors.sort((a,b)=>(a.kind==='concept')-(b.kind==='concept')||a.title.localeCompare(b.title)).slice(0,12).map(neighbor=>`<button data-id="${h(neighbor.id)}"><span class="dot" style="--c:${h(neighbor.color||'var(--accent)')}"></span>${h(neighbor.title)}</button>`).join('')}</div><button class="btn primary gp-open">Open ${h(KIND_LABEL[node.kind]?.toLowerCase()||'')}</button>`;
+    panel.querySelector('.gp-open').onclick=()=>open(node);panel.querySelector('.gp-close').onclick=home;panel.querySelectorAll('[data-id]').forEach(button=>button.onclick=()=>{const target=data.nodes.find(n=>n.id===button.dataset.id);if(target)focus(target);});
+  }});
+  GRAPH.setInputActive?.(document.activeElement===input);
+  $$('.graph-tools [data-f]').forEach(button=>button.onclick=()=>{const enabled=button.classList.toggle('on');button.setAttribute('aria-pressed',String(enabled));if(button.dataset.f==='concepts')store.set('universeConcepts',enabled);GRAPH?.setFilter({[button.dataset.f]:enabled});});
+  function home(){input.value='';results.hidden=true;input.setAttribute('aria-expanded','false');input.removeAttribute?.('aria-activedescendant');input.blur?.();GRAPH?.setQuery('');GRAPH?.clear();GRAPH?.fit();options.open=false;}
+  $('#gfit').onclick=home;$('#gzoom-in').onclick=()=>GRAPH?.zoomBy?.(1.25);$('#gzoom-out').onclick=()=>GRAPH?.zoomBy?.(.8);$('#grotate-left').onclick=()=>GRAPH?.rotateBy?.(-Math.PI/8);$('#grotate-right').onclick=()=>GRAPH?.rotateBy?.(Math.PI/8);
+  let matches=[],active=-1;
+  function pick(node){results.hidden=true;input.setAttribute('aria-expanded','false');input.blur?.();focus(node);options.open=false;}
+  function renderMatches(){const query=input.value.trim().toLowerCase();GRAPH?.setQuery(query);active=-1;
+    matches=query?data.nodes.filter(n=>n.title.toLowerCase().includes(query)).sort((a,b)=>(a.title.toLowerCase()===query?-1:0)-(b.title.toLowerCase()===query?-1:0)).slice(0,6):[];
+    results.hidden=!query;input.setAttribute('aria-expanded',String(!!query));input.removeAttribute?.('aria-activedescendant');
+    results.innerHTML=query?(matches.length?matches.map((node,index)=>`<button type="button" role="option" aria-selected="false" tabindex="-1" id="gresult-${index}" data-result="${index}"><span>${h(node.title)}</span><small>${h(KIND_LABEL[node.kind]||node.kind)}</small></button>`).join(''):'<p role="status">No matching stars</p>'):'';
+    $$('[data-result]',results).forEach(button=>{button.onmousedown=event=>event.preventDefault();button.onclick=()=>pick(matches[Number(button.dataset.result)]);});
+    if(!query){GRAPH?.clear();GRAPH?.fit();}
   }
-  const open = (n) => {
-    if (!n) return;
-    if (n.kind === "concept") go(`#/concept/${encodeURIComponent(n.title)}`);
-    else go(hrefFor(n));
-  };
-  GRAPH = g.mountGraph(host, data, {
-    concepts: store.get("universeConcepts",false),
-    onOpen: open,
-    onSelect: (n, nb) => {
-      if (!isCurrent()) return;
-      const p = $("#gpanel");
-      if (!p) return;
-      if (!n) { p.hidden = true; return; }
-      $("#ghint")?.remove();
-      p.hidden = false;
-      p.innerHTML = `<div class="gp-k"><span class="dot" style="--c:${h(n.kind === "concept" ? (n.bridges > 1 ? "#ffd27a" : "var(--muted)") : n.color || "var(--accent)")}"></span>${KIND_LABEL[n.kind] || n.kind}${n.bridges > 1 ? " · bridges " + n.bridges + " sections" : ""}</div>
-        <div class="gp-t">${h(n.title)}</div>
-        <div class="gp-m">${nb.length} connection${nb.length === 1 ? "" : "s"}</div>
-        <div class="gp-list">${nb.sort((a, b) => (a.kind === "concept") - (b.kind === "concept") || a.title.localeCompare(b.title)).slice(0, 40).map((x) => `<button data-id="${h(x.id)}"><span class="dot" style="--c:${h(x.kind === "concept" ? "var(--muted)" : x.color || "var(--accent)")}"></span>${h(x.title)}</button>`).join("")}</div>
-        <button class="btn primary gp-open">Open ${KIND_LABEL[n.kind]?.toLowerCase() || ""}</button>`;
-      p.querySelector(".gp-open").onclick = () => open(n);
-      p.querySelectorAll("[data-id]").forEach((b) => b.onclick = () => GRAPH.focus(b.dataset.id));
-    },
+  input.addEventListener('focus',()=>{GRAPH?.setInputActive?.(true);if(input.value.trim())renderMatches();});
+  input.addEventListener('blur',()=>{GRAPH?.setInputActive?.(false);results.hidden=true;input.setAttribute('aria-expanded','false');});
+  input.addEventListener('input',renderMatches);
+  input.addEventListener('keydown',event=>{
+    if(event.key==='Escape'){event.preventDefault();home();return;}
+    if(['ArrowDown','ArrowUp'].includes(event.key)&&matches.length){event.preventDefault();active=active<0?(event.key==='ArrowDown'?0:matches.length-1):(active+(event.key==='ArrowDown'?1:-1)+matches.length)%matches.length;input.setAttribute('aria-activedescendant','gresult-'+active);$$('[data-result]',results).forEach((button,index)=>button.setAttribute('aria-selected',String(index===active)));}
   });
-  $$(".graph-tools [data-f]").forEach((b) => b.onclick = () => { const enabled = b.classList.toggle("on"); b.setAttribute("aria-pressed", String(enabled)); if(b.dataset.f==="concepts")store.set("universeConcepts",enabled); GRAPH?.setFilter({ [b.dataset.f]: enabled }); });
-  $("#gfit").onclick = () => { GRAPH.clear(); GRAPH.fit(); };
-  $("#gq").addEventListener("input", (e) => GRAPH.setQuery(e.target.value.trim()));
-  $("#gq").addEventListener("keydown", (e) => { const query = e.target.value.trim().toLowerCase(); if (e.key === "Enter" && query) { const n = data.nodes.find((x) => x.title.toLowerCase().includes(query)); if (n) {if(n.kind==="concept"){const button=$('[data-f="concepts"]');button?.classList.add('on');button?.setAttribute('aria-pressed','true');store.set('universeConcepts',true);}GRAPH?.focus(n.id);} } });
+  $('#gsearch').addEventListener('submit',event=>{event.preventDefault();if(matches[active<0?0:active])pick(matches[active<0?0:active]);});
+  if(input.value.trim())renderMatches();
 }
 
 async function pageConcept(name, isCurrent = () => true) {
