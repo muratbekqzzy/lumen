@@ -796,18 +796,26 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
 .immersive-universe .graph-tools, .immersive-universe .graph-panel, .universe-zoom, .u-continue, .signin-banner, .menu-btn {
   background: var(--floating); backdrop-filter: none; -webkit-backdrop-filter: none;
 }
-/* Porcelain and sage keep navigation calm in both atmospheres. */
+/* Periwinkle glass lets the aura drift through a quiet navigation surface. */
 .side {
-  --bg: #edf0e8; --panel: #f7f8f3; --side: #edf0e8;
-  --ink: #304039; --ink-2: #526159; --muted: #616e65;
-  --accent: #526d5e; --accent-soft: rgba(82,109,94,.10); --hover: rgba(82,109,94,.055);
-  --line: rgba(74,94,79,.12); --line-2: rgba(74,94,79,.23); --glass: #f4f6ef;
-  --ok: #47725a; --warn: #947440; --danger: #a26059;
-  color: var(--ink); background: var(--side); backdrop-filter: none; -webkit-backdrop-filter: none;
-  box-shadow: 1px 0 0 rgba(74,94,79,.05);
+  --bg: #272b4e; --panel: rgba(74,79,127,.28); --side: rgba(39,43,78,.62);
+  --ink: #f4f3ff; --ink-2: #dfe2f5; --muted: #bbc2e0;
+  --accent: #c6cff8; --accent-soft: rgba(172,185,239,.13); --hover: rgba(181,192,241,.085);
+  --line: rgba(198,207,248,.14); --line-2: rgba(198,207,248,.25); --glass: rgba(59,64,108,.46);
+  --ok: #b0d8ce; --warn: #e2c9ab; --danger: #edb1ca;
+  color: var(--ink); background: var(--side);
+  backdrop-filter: blur(18px) saturate(1.05); -webkit-backdrop-filter: blur(18px) saturate(1.05);
+  box-shadow: 1px 0 0 rgba(198,207,248,.04);
 }
-:root[data-theme] .side .brand .mark::before { background: #526d5e; }
-.side .brand .mark::after { background: radial-gradient(circle,rgba(130,154,136,.22),rgba(130,154,136,0) 70%); }
+:root[data-theme="sky"] .side, :root[data-theme="light"] .side {
+  --bg: #e2e7f9; --panel: rgba(247,248,255,.44); --side: rgba(226,231,249,.62);
+  --ink: #303753; --ink-2: #4b5578; --muted: #5c6889;
+  --accent: #5e69a6; --accent-soft: rgba(102,116,182,.11); --hover: rgba(102,116,182,.065);
+  --line: rgba(85,99,153,.14); --line-2: rgba(85,99,153,.25); --glass: rgba(240,243,255,.48);
+  --ok: #426f67; --warn: #8b704e; --danger: #a6607c;
+}
+:root[data-theme] .side .brand .mark::before { background: var(--accent); }
+.side .brand .mark::after { background: radial-gradient(circle,rgba(165,181,237,.27),rgba(165,181,237,0) 70%); }
 :root[data-theme] .side .glyph:not(.emoji) {
   color: color-mix(in srgb,var(--c,var(--ink)) 30%,var(--ink));
   border-color: color-mix(in srgb,var(--c,var(--line-2)) 26%,var(--line-2));
