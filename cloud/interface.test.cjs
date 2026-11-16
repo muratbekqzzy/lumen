@@ -203,3 +203,25 @@ test('Add a question saves directly and a failed save leaves the form open',asyn
  await submit(form);assert.equal(received.method,'POST');assert.equal(received.path,'/api/lectures/l/questions');assert.equal(received.payload.q,'Question?');assert.equal(received.payload.accountId,'user-a');
  assert(app.elements.get('lecture-questions').innerHTML.includes('Question?'));assert.equal(app.elements.get('lecture-questions').hidden,false);assert(lecture.my_notes.startsWith('Keep old writing'));assert.equal(notifications.at(-1),'Question saved.');
 });
+test('flashcards reveal safely, navigate with a fresh hidden answer and respect deck boundaries',()=>{
+ const app=interfaceApp(),b=require('./browser-fixture.cjs').browser(),fields=new Map();
+ for(const selector of ['.flashcard-count','.flashcard-question','.flashcard-answer','[data-card="previous"]','[data-card="next"]','[data-card="reveal"]'])fields.set(selector,{setAttribute(name,value){this[name]=value;}});
+ const deck={setAttribute(){},querySelector:selector=>fields.get(selector)};let mounted;
+ app.document.createElement=()=>deck;app.context.enhance=()=>{};app.context.window.LumenImport=b.window.LumenImport;app.context.window.LumenMarkdown=b.window.LumenMarkdown;
+ app.context.cardSource={textContent:JSON.stringify({cards:[{q:'First **question**',a:'<script>unsafe</script>'},{front:'Second',back:'Answer 2'}]}),parentElement:{replaceWith(node){mounted=node;}}};
+ app.run('renderFlashcards(cardSource)');assert.equal(mounted,deck);const answer=fields.get('.flashcard-answer'),reveal=fields.get('[data-card="reveal"]'),next=fields.get('[data-card="next"]'),previous=fields.get('[data-card="previous"]');
+ assert.equal(fields.get('.flashcard-count').textContent,'1 / 2');assert.equal(previous.disabled,true);assert.equal(answer.hidden,true);assert(!answer.innerHTML.includes('<script>'));assert(fields.get('.flashcard-question').innerHTML.includes('<strong>question</strong>'));
+ reveal.onclick();assert.equal(answer.hidden,false);assert.equal(reveal['aria-expanded'],'true');next.onclick();assert.equal(fields.get('.flashcard-count').textContent,'2 / 2');assert.equal(answer.hidden,true);assert.equal(next.disabled,true);assert.equal(reveal['aria-expanded'],'false');next.onclick();assert.equal(fields.get('.flashcard-count').textContent,'2 / 2');previous.onclick();assert.equal(fields.get('.flashcard-count').textContent,'1 / 2');
+});
+test('imported flashcards are visible on the Lecture page without an extra tab or closed practice wrapper',async()=>{
+ const lecture={meta:{id:'l',title:'Lecture',status:'complete'},breadcrumbs:[],chunks:[],generated_html:{'study-pack.md':'<p>Lecture material.</p>'},prepared_practice_html:'<pre><code class="language-flashcards">deck data</code></pre>',my_notes:''};
+ const app=interfaceApp({request:()=>lecture});await app.run('pageLecture("l")');const html=app.elements.get('tabbody').innerHTML;
+ assert(html.includes('<section class="lesson-practice"'));assert(html.includes('language-flashcards'));assert(!html.includes('<details class="lesson-practice"'));assert.equal((app.elements.get('main').innerHTML.match(/role="tab"/g)||[]).length,2);
+});
+test('flashcards mount immediately even while the chart library is still loading',()=>{
+ const app=interfaceApp();let mounted=0,loading=false;
+ app.context.renderFlashcards=()=>mounted++;
+ app.context.loadPlotly=()=>{loading=true;return new Promise(()=>{});};
+ app.context.cardAndChartRoot={querySelectorAll:selector=>selector==='pre > code.language-flashcards'?[{}]:selector==='pre > code.language-plotly'?[{textContent:'{"data":[]}',parentElement:{replaceWith(){}}}]:[]};
+ app.run('void enhance(cardAndChartRoot)');assert.equal(mounted,1);assert(loading);
+});

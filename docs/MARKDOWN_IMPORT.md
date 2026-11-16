@@ -61,8 +61,14 @@ Interactive material uses fenced blocks:
 Optional **Slide explanations** map `## Slide N` headings to PDF page numbers.
 They work without a PDF; attach original slides later through **Slides → Add
 slides**. A supplied **Practice questions** or **Flashcards** section becomes a
-collapsed practice area. No practice cards are generated automatically, and old
-flashcard sets are not appended to the reader.
+visible practice area. `Q: …` / `A: …` pairs become a flashcard deck with
+Show answer and Previous/Next controls. Existing saved flashcard files appear here
+too, with identical cards deduplicated. No cards are generated automatically.
+
+You can also use a `flashcards` fence containing `{"cards":[{"q":"Question",
+"a":"Answer"}]}` (or `front`/`back`). A flashcards-only Markdown file can update an
+existing lecture through **Import Markdown**, keeping its reading material, slide
+explanations, quizzes and personal writing.
 
 An update replaces the imported reading material and prepared slide/practice
 content. It keeps personal notes, original PDF references, captions and other

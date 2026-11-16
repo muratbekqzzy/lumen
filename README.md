@@ -44,7 +44,8 @@ an AI generator, transcribe a recording or generate flashcards during import.
 
 Slides are optional, with private storage and local rendering (20 MiB per PDF).
 **Add a question** saves a question and answer directly. Your practice questions
-appear below the lecture with answers you can reveal. The lecture Notes tab is
+appear below the lecture with answers you can reveal. Supplied Markdown flashcards
+render as a deck with Show answer and Previous/Next controls. The lecture Notes tab is
 hidden for now; existing note text remains stored.
 See the [one-file import guide](docs/MARKDOWN_IMPORT.md) for the format and limits.
 The Python/Mac transcription and MCP tools documented below remain separate.

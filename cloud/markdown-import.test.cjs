@@ -60,3 +60,32 @@ test('a hosted import rejects an account-switch race before changing either libr
  const b=browser({hosted:true,fetch:async()=>Response.json({user:{id:'alice'},revision:0,state:null})});await b.window.LumenCloud.sync();
  await assert.rejects(()=>api(b,'POST','/api/lectures/import-markdown',{text:document(),accountId:'bob'}),/account changed/);assert.equal(Object.values(b.window.LumenCloud.exportData().records).filter(n=>n.kind==='lecture').length,0);
 });
+test('Q/A flashcards import as an interactive deck while keeping quizzes and widget code intact',async()=>{
+ const b=browser(),text=header()+'# Lecture\n\nReading material.\n\n# Flashcards\n**Q:** Why compare?\n**A:** To isolate a cause.\n\nQ: Next question?\nA: First line.\nSecond line.\n\n# Practice questions\n```quiz\n{"questions":[{"q":"Compare?","options":["Yes","No"],"answer":0}]}\n```';
+ const r=await importFile(b,text),d=await api(b,'GET','/api/lectures/'+r.id);
+ assert(d.prepared_practice_html.includes('language-flashcards'));assert(d.prepared_practice_html.includes('language-quiz'));assert(d.generated['study-pack.md'].includes('Reading material.'));
+ const parts=b.window.LumenImport.practiceParts('```widget\nQ: Inside code\nA: Keep it\n```');assert.equal(parts.cards.length,0);assert(parts.rest.includes('Inside code'));
+ assert.equal(b.window.LumenImport.practiceParts('Q: Unanswered question').cards.length,0);
+});
+test('a cards-only Markdown update preserves lecture text, slide explanations, quizzes and personal notes',async()=>{
+ const b=browser(),r=await importFile(b);await api(b,'PUT','/api/lectures/'+r.id+'/notes',{body:'Personal writing'});
+ const state=b.window.LumenCloud.exportData();state.records[r.id].prepared_practice='```quiz\n{"questions":[{"q":"Q?","options":["A","B"],"answer":0}]}\n```';b.window.LumenCloud.importData(state);
+ const before=await api(b,'GET','/api/lectures/'+r.id);
+ const cards='# flashcards.md\n\nQ: What is a control?\nA: A comparison.\n\nQ: Why repeat?\nA: For confidence.';
+ const request={text:cards,filename:'flashcards.md',destination:{lecture_id:r.id}};
+ const first=await api(b,'POST','/api/lectures/import-markdown',request);assert.equal(first.id,r.id);
+ const after=await api(b,'GET','/api/lectures/'+r.id);assert.equal(after.generated['study-pack.md'],before.generated['study-pack.md']);assert.deepEqual(after.slide_explanations_html,before.slide_explanations_html);assert.equal(after.my_notes,'Personal writing');assert(after.prepared_practice_html.includes('language-flashcards')&&after.prepared_practice_html.includes('language-quiz'));
+ assert.equal((await api(b,'POST','/api/lectures/import-markdown',request)).unchanged,true);
+});
+test('already saved flashcards render without reimport, and duplicate cards appear only once',async()=>{
+ const b=browser(),r=await importFile(b);const qa='Q: Useful question?\nA: Useful answer.';
+ await api(b,'PUT','/api/lectures/'+r.id+'/materials',{kind:'flashcards',body:qa});
+ assert((await api(b,'GET','/api/lectures/'+r.id)).prepared_practice_html.includes('language-flashcards'));
+ const source=b.window.LumenImport.practiceMarkdown(qa,qa),spec=JSON.parse(source.match(/```flashcards\n([\s\S]*?)\n```/)[1]);assert.equal(spec.cards.length,1);
+});
+test('flashcard JSON supports front/back and rejects malformed decks before any write',async()=>{
+ const b=browser(),before=b.window.LumenCloud.exportData();
+ for(const spec of [{cards:[]},{cards:[{q:'Only a question'}]}])await assert.rejects(()=>importFile(b,header()+'# Lecture\n\n```flashcards\n'+JSON.stringify(spec)+'\n```'));
+ assert.deepEqual(b.window.LumenCloud.exportData(),before);
+ const r=await importFile(b,header()+'# Lecture\n\n```flashcards\n{"cards":[{"front":"Term","back":"Meaning"}]}\n```');assert((await api(b,'GET','/api/lectures/'+r.id)).generated_html['study-pack.md'].includes('language-flashcards'));
+});

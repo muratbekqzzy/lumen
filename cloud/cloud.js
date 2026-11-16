@@ -89,7 +89,7 @@ function lectureBundle(n){
  const timed=n.timed_captions!==false&&!segments.some(x=>x.untimed);
  const duration=segments.reduce((end,x)=>Math.max(end,x.end||0),0);
  const chunks=n.chunks?.length?n.chunks:segments.length?[{n:1,page:null,title:"Transcript",start:0,end:duration,segmentIds:segments.map(x=>x.id)}]:[];
- return {meta:n,chunks:chunks.map(c=>({...c,said:(c.segmentIds||[]).map(key=>byId.get(key)).filter(Boolean),link:timed?lectureUrl(n.panopto_url,c.start):"",time:timed?((c.approximate?"≈ ":"")+Math.floor(c.start/60)+":"+String(Math.floor(c.start%60)).padStart(2,"0")):"Segment "+c.n})),pages_not_shown:[],generated,generated_html:Object.fromEntries(Object.entries(generated).map(([k,v])=>[k,md(v)])),slide_explanations_html:(n.slide_explanations||[]).map(s=>({...s,html:md(s.body)})),prepared_practice_html:md(n.prepared_practice||""),my_notes:n.body||"",my_notes_html:md(n.body),has_audio:false,breadcrumbs:breadcrumbs(n)};
+ return {meta:n,chunks:chunks.map(c=>({...c,said:(c.segmentIds||[]).map(key=>byId.get(key)).filter(Boolean),link:timed?lectureUrl(n.panopto_url,c.start):"",time:timed?((c.approximate?"≈ ":"")+Math.floor(c.start/60)+":"+String(Math.floor(c.start%60)).padStart(2,"0")):"Segment "+c.n})),pages_not_shown:[],generated,generated_html:Object.fromEntries(Object.entries(generated).map(([k,v])=>[k,md(v)])),slide_explanations_html:(n.slide_explanations||[]).map(s=>({...s,html:md(s.body)})),prepared_practice_html:md(window.LumenImport?.practiceMarkdown?window.LumenImport.practiceMarkdown(n.prepared_practice||"",generated["flashcards.md"]||""):n.prepared_practice||generated["flashcards.md"]||""),my_notes:n.body||"",my_notes_html:md(n.body),has_audio:false,breadcrumbs:breadcrumbs(n)};
 }
 const sectionOf=n=>{let p=n;for(let i=0;i<40&&p;i++){if(p.kind==="section")return p.id;p=get(p.parent)}return null};
 const result=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json"}});
@@ -130,14 +130,18 @@ if(method==="POST"&&p==="/api/lectures/import-markdown"){
  if(HOSTED&&body.accountId!==owner)throw Error("Your account changed. Reopen Markdown import in the correct account.");
  if(!window.LumenImport)throw Error("Markdown import could not load. Reconnect and reload Lumen.");
  const document=window.LumenImport.parse(body.text,String(body.filename||"lecture.md")),target=window.LumenImport.plan(db,document.metadata,body.destination||{}),existing=target.lecture.new?null:target.lecture;
- if(existing?.lesson_source==="markdown"&&existing.generated?.["study-pack.md"]===document.content&&(existing.prepared_practice||"")===document.practice&&stable(existing.slide_explanations||[])===stable(document.slide_explanations))return {id:existing.id,unchanged:true};
+ if(existing&&(document.practice_only?existing.generated?.["flashcards.md"]===document.practice:existing.lesson_source==="markdown"&&existing.generated?.["study-pack.md"]===document.content&&(existing.prepared_practice||"")===document.practice&&stable(existing.slide_explanations||[])===stable(document.slide_explanations)))return {id:existing.id,unchanged:true};
  return mod("Import Markdown lecture",()=>{
   const create=(spec,parent)=>{if(!spec.new)return spec;const importKey=fingerprint([spec.kind,parent.id,spec.title.normalize("NFKC").trim().toLowerCase().replace(/\s+/g," ")]),stableId=spec.kind[0]+"_md_"+importKey,key=db.records[stableId]||db.deleted[stableId]?id(spec.kind[0]):stableId;const record={id:key,import_key:importKey,kind:spec.kind,title:spec.title,parent:parent.id,type:spec.type||"",icon:"",color:({academic:"#a9c7ff",professional:"#ffd27a",creative:"#c7b3ff",language:"#8fe3bf"})[spec.type||parent.type]||"#c7b3ff",created:now(),updated:now()};db.records[record.id]=record;return record;};
   const section=create(target.section,requireNode("root")),module=create(target.module,section),lecture=create(target.lecture,module);
   if(lecture.body===undefined)lecture.body="";
-  lecture.generated={...(lecture.generated||{}),"study-pack.md":document.content};
-  lecture.prepared_practice=document.practice;lecture.slide_explanations=document.slide_explanations;
-  lecture.lesson_source="markdown";lecture.generated_source="prepared";lecture.status="complete";lecture.materials_stale=false;
+  if(!document.practice_only){
+   lecture.generated={...(lecture.generated||{}),"study-pack.md":document.content};lecture.slide_explanations=document.slide_explanations;
+   lecture.lesson_source="markdown";lecture.materials_stale=false;
+  }
+  if(document.practice_only)lecture.generated={...(lecture.generated||{}),"flashcards.md":document.practice};
+  else lecture.prepared_practice=document.practice;
+  lecture.generated_source="prepared";if(!document.practice_only||!lecture.status)lecture.status="complete";
   lecture.markdown_import={filename:document.filename.slice(0,200),at:now(),source_bytes:document.source_bytes,format_version:1};
   touch(lecture);
   if(HOSTED&&new TextEncoder().encode(JSON.stringify(db)).byteLength>8*1024*1024-2048)throw Error("This import exceeds the library sync limit. Export a backup and reduce unused material before importing.");

@@ -99,6 +99,13 @@ test('direct practice questions save offline and sync across devices with existi
  assert.equal(await b.cloud.sync(),false);b.navigator.onLine=true;await connect(b);await connect(a);
  const synced=await api(a,'GET','/api/lectures/'+lecture.id);assert(synced.my_notes.startsWith('Existing private notes'));assert(synced.my_notes.includes('Why use a control?'));assert.equal(synced.generated['study-pack.md'],originalPack);
 });
+test('flashcard-only Markdown syncs to another device without replacing the lecture or slides',async()=>{
+ const remote=server(),a=browser(remote),b=browser(remote);await connect(a);
+ const lecture=await api(a,'POST','/api/lectures/import-markdown',markdownRequest(a)),before=await api(a,'GET','/api/lectures/'+lecture.id);
+ await api(a,'POST','/api/lectures/import-markdown',{text:'# flashcards.md\n\nQ: What is a control?\nA: A comparison.',filename:'flashcards.md',destination:{lecture_id:lecture.id},accountId:a.cloud.activeAccountId});
+ await connect(a);await connect(b);const after=await api(b,'GET','/api/lectures/'+lecture.id);
+ assert(after.prepared_practice_html.includes('language-flashcards'));assert(after.prepared_practice_html.includes('What is a control?'));assert.equal(after.generated['study-pack.md'],before.generated['study-pack.md']);assert.deepEqual(after.slide_explanations_html,before.slide_explanations_html);
+});
 test('a Markdown-only lecture syncs its complete material and slide explanations across accounts and offline devices',async()=>{
   const remote=server(),a=browser(remote),b=browser(remote),other=browser(remote,{account:'bob'});
   await connect(a);const imported=await api(a,'POST','/api/lectures/import-markdown',markdownRequest(a));await connect(a);await connect(b);await connect(other);

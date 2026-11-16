@@ -9,8 +9,9 @@ function headings(lines){
  for(let i=0;i<lines.length;i++){
   const marker=/^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[i]);
   if(fence){if(marker&&marker[1][0]===fence.char&&marker[1].length>=fence.length&&!marker[2].trim()){
-    if(['quiz','plotly','qa'].includes(fence.info)){
+    if(['quiz','plotly','qa','flashcards'].includes(fence.info)){
      let data;try{data=JSON.parse(lines.slice(fence.line,i).join('\n'))}catch{throw Error('Check the '+fence.info+' JSON near line '+fence.line+'.');}
+     if(fence.info==='flashcards')flashcards(data);
      if(fence.info==='quiz'&&(!Array.isArray(data?.questions)||!data.questions.length||data.questions.some(q=>!q||typeof q.q!=='string'||!Array.isArray(q.options)||q.options.length<2||q.options.some(o=>typeof o!=='string')||!Number.isInteger(q.answer)||q.answer<0||q.answer>=q.options.length)))throw Error('Check the quiz questions and answer indices near line '+fence.line+'.');
      if(fence.info==='plotly'&&!Array.isArray(data?.data))throw Error('The chart near line '+fence.line+' needs a data array.');
      if(fence.info==='qa'&&(typeof data?.q!=='string'||typeof data?.a!=='string'))throw Error('The practice block needs a question and answer.');
@@ -23,6 +24,39 @@ function headings(lines){
  }
  if(fence)throw Error('A code block is missing its closing fence near line '+fence.line+'.');
  return out;
+}
+function flashcards(data){
+ const cards=Array.isArray(data)?data:data?.cards;
+ if(!Array.isArray(cards)||!cards.length)throw Error('A flashcards block needs a non-empty cards array.');
+ return cards.map(card=>{const q=card?.q??card?.question??card?.front,a=card?.a??card?.answer??card?.back;if(typeof q!=='string'||!q.trim()||typeof a!=='string'||!a.trim())throw Error('Each flashcard needs a question and answer (q/a or front/back).');return {q:q.trim(),a:a.trim()};});
+}
+function practiceParts(text){
+ const lines=String(text||'').replace(/\r\n?/g,'\n').split('\n'),cards=[],rest=[];
+ const label=line=>/^\s*(?:[-*+]\s+|\d+[.)]\s+)?(?:\*\*)?(Q(?:uestion)?|A(?:nswer)?|Front|Back)(?:\*\*)?\s*:(?:\*\*)?\s*(.*)$/i.exec(line);
+ for(let i=0;i<lines.length;i++){
+  const fence=/^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[i]);
+  if(fence){let end=i+1;for(;end<lines.length;end++){const close=/^ {0,3}(`{3,}|~{3,})\s*$/.exec(lines[end]);if(close&&close[1][0]===fence[1][0]&&close[1].length>=fence[1].length)break;}
+   if(fence[2].trim()==='flashcards'&&end<lines.length){try{cards.push(...flashcards(JSON.parse(lines.slice(i+1,end).join('\n'))));i=end;continue;}catch{}}
+   rest.push(...lines.slice(i,Math.min(end+1,lines.length)));i=end;continue;
+  }
+  const start=label(lines[i]);
+  if(start&&/^(q|question|front)$/i.test(start[1])){
+   const q=[start[2]],answer=[];let found=false,j=i+1;
+   for(;j<lines.length;j++){
+    const next=label(lines[j]);if(next&&/^(q|question|front)$/i.test(next[1]))break;
+    if(/^\s*(?:#{1,6}\s|[-*_]{3,}\s*$|`{3,}|~{3,})/.test(lines[j]))break;
+    if(!found&&next&&/^(a|answer|back)$/i.test(next[1])){found=true;answer.push(next[2]);}else(found?answer:q).push(lines[j]);
+   }
+   if(found&&q.join('\n').trim()&&answer.join('\n').trim()){cards.push({q:q.join('\n').trim(),a:answer.join('\n').trim()});i=j-1;continue;}
+  }
+  rest.push(lines[i]);
+ }
+ return {cards,rest:rest.join('\n').replace(/^\s*#{1,6}\s+flash[ -]?cards(?:\.md)?\s*$/gim,'').trim()};
+}
+function practiceMarkdown(...sources){
+ const all=[],seen=new Set(),remaining=[];
+ for(const source of sources){const part=practiceParts(source);if(part.rest)remaining.push(part.rest);for(const card of part.cards){const key=JSON.stringify([card.q,card.a]);if(!seen.has(key)){seen.add(key);all.push(card);}}}
+ return [...remaining,...(all.length?['```flashcards\n'+JSON.stringify({cards:all})+'\n```']:[])].join('\n\n');
 }
 function parse(text,filename='lecture.md'){
  if(typeof text!=='string'||!text.trim())throw Error('Choose a Markdown file with lecture material.');
@@ -55,11 +89,12 @@ function parse(text,filename='lecture.md'){
  const hs=headings(lines),removed=new Set(),practice=[],slides=[];
  for(let i=0;i<hs.length;i++){
   const h=hs[i],name=norm(h.title).replace(/\.md$/,'').replace(/[-_]/g,' ');
-  if(h.level>2||!['flashcards','practice questions','slide explanations','slide notes'].includes(name))continue;
+  const practiceSection=/^(?:flash ?cards|practice (?:questions|cards))(?:\s*[:(].*| - .*)?$/.test(name);
+  if(h.level>2||(!practiceSection&&!['slide explanations','slide notes'].includes(name)))continue;
   const next=hs.slice(i+1).find(other=>other.level<=h.level),end=next?.line??lines.length;
   const block=lines.slice(h.line+1,end),body=block.join('\n').trim();
   for(let line=h.line;line<end;line++)removed.add(line);
-  if(['flashcards','practice questions'].includes(name)){if(body)practice.push(body);}
+  if(practiceSection){if(body)practice.push(body);}
   else if(body){
    const pages=headings(block).map(p=>({...p,match:/^slide\s+(\d+)\b/i.exec(p.title)})).filter(p=>p.match);
    if(!pages.length)throw Error('Under Slide explanations, use headings such as ## Slide 1.');
@@ -74,9 +109,11 @@ function parse(text,filename='lecture.md'){
  }
  let content=lines.filter((_,i)=>!removed.has(i)).join('\n').trim();
  content=content.replace(/^#\s+study[- ]pack(?:\.md)?\s*\n+/i,'').replace(/^#\s+explanation\.md\s*$/gm,'## Explanation');
- if(!content.trim())throw Error('Include a lecture explanation or study material, not only flashcards or slide notes.');
+ const cardOnly=practiceParts(content);
+ if(cardOnly.cards.length&&(!cardOnly.rest||/flash[-_ ]?cards?/i.test(filename))){practice.push(content);content='';}
+ if(!content.trim()&&!practice.length)throw Error('Include lecture material or flashcards in this Markdown file.');
  const title=hs.find(h=>h.level===1&&!removed.has(h.line)&&!/^study[- ]pack(?:\.md)?$/i.test(h.title))?.title;
- return {metadata,content,practice:practice.join('\n\n'),slide_explanations:slides,
+ return {metadata,content,practice_only:!content,practice:practice.join('\n\n'),slide_explanations:slides,
   suggested_title:metadata.lecture||title||filename.replace(/\.(md|markdown)$/i,'').replace(/[_-]+/g,' ').trim(),filename,source_bytes:bytes(text)};
 }
 function plan(state,metadata={},overrides={}){
@@ -164,5 +201,5 @@ function open(context={}){
  };
  input.focus();return overlay;
 }
-window.LumenImport={parse,plan,template,open,limit:LIMIT,categories:CATEGORIES};
+window.LumenImport={parse,plan,template,open,flashcards,practiceParts,practiceMarkdown,limit:LIMIT,categories:CATEGORIES};
 })();

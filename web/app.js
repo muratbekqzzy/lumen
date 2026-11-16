@@ -422,6 +422,7 @@ function loadPlotly() {
 function themeVars() { const cs = getComputedStyle(document.documentElement); return Object.fromEntries(["--ink", "--ink-2", "--muted", "--line", "--panel", "--bg", "--accent", "--mark"].map((k) => [k, cs.getPropertyValue(k).trim()])); }
 async function enhance(root) {
   if (!root || root.isConnected === false) return;
+  for (const code of $$("pre > code.language-flashcards", root)) renderFlashcards(code);
   for (const code of $$("pre > code.language-plotly", root)) {
     const pre = code.parentElement;
     let spec; try { spec = JSON.parse(code.textContent); } catch { continue; }
@@ -457,6 +458,19 @@ async function enhance(root) {
   if (window.renderMathInElement) {
     renderMathInElement(root, { delimiters: [{ left: "$$", right: "$$", display: true }, { left: "\\[", right: "\\]", display: true }, { left: "$", right: "$", display: false }, { left: "\\(", right: "\\)", display: false }], throwOnError: false, ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"] });
   } else setTimeout(() => window.renderMathInElement && enhance(root), 400);
+}
+
+function renderFlashcards(code) {
+  let cards;try{cards=window.LumenImport.flashcards(JSON.parse(code.textContent));}catch{return;}
+  const deck=document.createElement('section');deck.className='flashcard-deck';deck.setAttribute('aria-label','Flashcards');
+  deck.innerHTML='<div class="flashcard-count" aria-live="polite"></div><div class="flashcard-question prose"></div><div class="flashcard-answer prose" hidden></div><div class="flashcard-controls"><button class="btn ghost" type="button" data-card="previous">Previous</button><button class="btn primary" type="button" data-card="reveal" aria-expanded="false">Show answer</button><button class="btn ghost" type="button" data-card="next">Next</button></div>';
+  code.parentElement.replaceWith(deck);
+  const question=$('.flashcard-question',deck),answer=$('.flashcard-answer',deck),count=$('.flashcard-count',deck),previous=$('[data-card="previous"]',deck),next=$('[data-card="next"]',deck),reveal=$('[data-card="reveal"]',deck);
+  let index=0,answerPrepared=false;
+  const paint=()=>{const card=cards[index];count.textContent=(index+1)+' / '+cards.length;question.innerHTML=window.LumenMarkdown?.render(card.q)||h(card.q);answer.innerHTML=window.LumenMarkdown?.render(card.a)||h(card.a);answer.hidden=true;answerPrepared=false;reveal.textContent='Show answer';reveal.setAttribute('aria-expanded','false');previous.disabled=index===0;next.disabled=index===cards.length-1;enhance(question);};
+  reveal.onclick=()=>{answer.hidden=!answer.hidden;reveal.textContent=answer.hidden?'Show answer':'Hide answer';reveal.setAttribute('aria-expanded',String(!answer.hidden));if(!answer.hidden&&!answerPrepared){answerPrepared=true;enhance(answer);}};
+  previous.onclick=()=>{if(index>0){index--;paint();}};next.onclick=()=>{if(index<cards.length-1){index++;paint();}};
+  paint();
 }
 
 // "Check my understanding" quizzes: ```quiz {"title": "...", "questions": [{"q": "...", "options": [...], "answer": 0, "why": "..."}]}
@@ -734,7 +748,7 @@ function pageLectureTab(id, tab) {
   if(tab==='slides'){renderSlides(body,id);mountLectureQuestions(body,d);enhance(body);return;}
   const extra=d.meta.lesson_source==='markdown'?[]:Object.keys(gen).filter(name=>name.startsWith('explain'));
   body.innerHTML=gen['study-pack.md']?`<article class="prose lecture-prose">${gen['study-pack.md']}${extra.map(name=>`<section class="lesson-supplement"><h2>Further explanation</h2>${gen[name]}</section>`).join('')}</article>`:`<div class="empty"><span class="welcome-kicker">Room for understanding</span><h3>Your lecture, ready to read.</h3><p>Import one prepared Markdown file with your explanations, examples and useful visuals. Slides can be added whenever you need them.</p><button class="btn primary" id="import-empty-lecture">Import Markdown</button></div>`;
-  if(d.prepared_practice_html)body.insertAdjacentHTML('beforeend',`<details class="lesson-practice"><summary>Practice questions</summary><div class="prose">${d.prepared_practice_html}</div></details>`);
+  if(d.prepared_practice_html)body.insertAdjacentHTML('beforeend',`<section class="lesson-practice" aria-label="Imported practice"><h2 class="practice-title">Practice</h2><div class="prose">${d.prepared_practice_html}</div></section>`);
   $('#import-empty-lecture')?.addEventListener('click',()=>openMarkdownImport({lectureId:id}));
   lessonOutline(body);mountLectureQuestions(body,d);enhance(body);
 }

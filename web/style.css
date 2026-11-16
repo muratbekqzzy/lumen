@@ -846,3 +846,12 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
 .lecture-questions[hidden] { display: none; }
 .lecture-questions .practice-question { max-width: none; }
 .lecture-actions { flex-wrap: wrap; justify-content: flex-end; }
+
+.practice-title { margin: 0 0 18px; color: var(--muted); font: 400 12px var(--mono); }
+.flashcard-deck { padding: 8px 0; }
+.flashcard-count { color: var(--muted); font: 400 11px var(--mono); margin-bottom: 20px; }
+.flashcard-question { color: var(--ink); font-size: 18px; min-height: 64px; }
+.flashcard-answer { border-top: 1px solid var(--line); margin: 18px 0; padding-top: 18px; }
+.flashcard-answer[hidden] { display: none; }
+.flashcard-controls { display: flex; gap: 12px; justify-content: space-between; margin-top: 24px; flex-wrap: wrap; }
+.flashcard-controls .btn { min-height: 42px; }
