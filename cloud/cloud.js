@@ -174,6 +174,12 @@ if(method==="PUT"&&v==="lectures"&&parts[3]==="materials")return mod("Save prepa
  if(new TextEncoder().encode(body.body).byteLength>1024*1024)throw Error("Study material must be smaller than 1 MiB");
  const n=preserveEditorVersion(oid);n.generated={...(n.generated||{}),[filename]:body.body};n.generated_source="prepared";n.materials_stale=false;if(body.kind==="study-pack")n.status="complete";touch(n);return {ok:true,filename};
 });
+if(method==="POST"&&v==="lectures"&&parts[3]==="questions")return mod("Add practice question",()=>{
+ if(HOSTED&&body.accountId!==owner)throw Error("Your account changed. Reopen the lecture before adding a question.");
+ const n=requireNode(oid),q=typeof body.q==="string"?body.q.trim():"",a=typeof body.a==="string"?body.a.trim():"";
+ if(n.kind!=="lecture"||!q||!a||q.length>10000||a.length>100000)throw Error("Enter a question and answer within the allowed length.");
+ n.body=String(n.body||"")+"\n\n```qa\n"+JSON.stringify({q,a})+"\n```\n";touch(n);return {body:n.body};
+});
 if(method==="PUT"&&v==="lectures"&&parts[3]==="notes")return mod("Edit lecture notes",()=>{let n=preserveEditorVersion(oid,body),conflictPreserved=n.body!==body.body&&body.expectedBody!==undefined&&n.body!==body.expectedBody;n.body=body.body;touch(n);return {html:md(n.body),conflictPreserved}});
 if(method==="POST"&&p==="/api/lectures")throw Error("Lecture transcription runs on the Mac version. The browser version supports notes and existing text only.");
 throw Error("This feature requires the Mac version: "+method+" "+p);

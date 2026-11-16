@@ -691,17 +691,18 @@ async function pageLecture(id, tab, isCurrent = () => true) {
   if (!isCurrent()) return;
   LECTURE = d;
   const m = d.meta, busy = ['processing','queued','transcribing'].includes(m.status);
-  tab = ['slides','notes'].includes(tab) ? tab : 'pack';
+  tab = tab==='slides' ? 'slides' : 'pack';
   main().innerHTML = `<div class="page lecture-page" id="lec">
     ${crumbs(d.breadcrumbs.slice(0,-1))}
-    <div class="lecture-heading"><h1 class="title"><span class="title-edit" id="ttl">${h(m.title)}</span></h1><div class="lecture-actions">${window.LumenCloud ? '<button class="btn ghost" id="update-lecture">Import Markdown</button>' : ''}<button class="icon-btn" id="lmore" aria-label="Lecture options">${ICONS.more}</button></div></div>
+    <div class="lecture-heading"><h1 class="title"><span class="title-edit" id="ttl">${h(m.title)}</span></h1><div class="lecture-actions"><button class="btn ghost" id="add-lecture-question" type="button">Add a question</button>${window.LumenCloud ? '<button class="btn ghost" id="update-lecture">Import Markdown</button>' : ''}<button class="icon-btn" id="lmore" aria-label="Lecture options">${ICONS.more}</button></div></div>
     ${m.materials_stale ? '<p class="study-notice">The source changed since this material was prepared. Import an updated Markdown file when ready.</p>' : ''}
     ${busy ? '<p class="study-notice" role="status">This lecture is still processing on your Mac.</p>' : ''}
-    <div class="tabs" role="tablist" aria-label="Lecture views">${[['pack','Lecture'],['slides','Slides'],['notes','Notes']].map(([key,label])=>`<button class="tab ${key===tab?'on':''}" role="tab" aria-selected="${key===tab}" aria-controls="tabbody" data-t="${key}">${label}</button>`).join('')}</div>
+    <div class="tabs" role="tablist" aria-label="Lecture views">${[['pack','Lecture'],['slides','Slides']].map(([key,label])=>`<button class="tab ${key===tab?'on':''}" role="tab" aria-selected="${key===tab}" aria-controls="tabbody" data-t="${key}">${label}</button>`).join('')}</div>
     <div id="tabbody" role="tabpanel"></div>
   </div>`;
   $('#ttl').onclick = () => renameDialog(NODES.get(id) || {id,title:m.title});
   $('#lmore').onclick = e => openMenu(e,NODES.get(id) || {id,title:m.title,kind:'lecture'});
+  $('#add-lecture-question').onclick=()=>openLectureQuestion(id,d);
   if ($('#update-lecture')) $('#update-lecture').onclick = () => openMarkdownImport({lectureId:id});
   $$('.tab').forEach(button => button.onclick = () => {
     const nextHash = `#/lecture/${id}/${button.dataset.t}`;
@@ -727,16 +728,44 @@ function lessonOutline(body) {
 }
 function pageLectureTab(id, tab) {
   window.LumenPDF?.clearViews();
-  tab=['slides','notes'].includes(tab)?tab:'pack';
+  tab=tab==='slides'?'slides':'pack';
   $$('.tab').forEach(button=>{button.classList.toggle('on',button.dataset.t===tab);button.setAttribute('aria-selected',String(button.dataset.t===tab));});
   const d=LECTURE,body=$('#tabbody'),gen=d.generated_html;
-  if(tab==='notes')return renderEditor(body,d.my_notes,async(text,expectedBody)=>{const result=await api('PUT',`/api/lectures/${id}/notes`,{body:text,expectedBody});d.my_notes=text;return result;},'Your notes and practice questions. ⌘S to save.',true);
-  if(tab==='slides'){renderSlides(body,id);enhance(body);return;}
+  if(tab==='slides'){renderSlides(body,id);mountLectureQuestions(body,d);enhance(body);return;}
   const extra=d.meta.lesson_source==='markdown'?[]:Object.keys(gen).filter(name=>name.startsWith('explain'));
   body.innerHTML=gen['study-pack.md']?`<article class="prose lecture-prose">${gen['study-pack.md']}${extra.map(name=>`<section class="lesson-supplement"><h2>Further explanation</h2>${gen[name]}</section>`).join('')}</article>`:`<div class="empty"><span class="welcome-kicker">Room for understanding</span><h3>Your lecture, ready to read.</h3><p>Import one prepared Markdown file with your explanations, examples and useful visuals. Slides can be added whenever you need them.</p><button class="btn primary" id="import-empty-lecture">Import Markdown</button></div>`;
   if(d.prepared_practice_html)body.insertAdjacentHTML('beforeend',`<details class="lesson-practice"><summary>Practice questions</summary><div class="prose">${d.prepared_practice_html}</div></details>`);
   $('#import-empty-lecture')?.addEventListener('click',()=>openMarkdownImport({lectureId:id}));
-  lessonOutline(body);enhance(body);
+  lessonOutline(body);mountLectureQuestions(body,d);enhance(body);
+}
+function lecturePracticeQuestions(text) {
+  const questions=[];
+  for(const match of String(text||'').matchAll(/^[ \t]{0,3}(`{3,}|~{3,})qa[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]{0,3}\1[ \t]*(?=\r?$)/gm)){
+    try{const item=JSON.parse(match[2]);if(typeof item.q==='string'&&item.q.trim()&&typeof item.a==='string'&&item.a.trim())questions.push(item);}catch{}
+  }
+  return questions;
+}
+function lectureQuestionsMarkup(lecture) {
+  return lecturePracticeQuestions(lecture.my_notes).map(item=>`<details class="practice-question"><summary>${h(item.q)}</summary><div>${h(item.a).replace(/\n/g,'<br>')}</div></details>`).join('');
+}
+function mountLectureQuestions(body,lecture) {
+  const html=lectureQuestionsMarkup(lecture);
+  body.insertAdjacentHTML('beforeend',`<section class="lecture-questions" id="lecture-questions" aria-label="Your practice questions" ${html?'':'hidden'}>${html}</section>`);
+}
+function openLectureQuestion(id,lecture) {
+  if(requireSignIn())return;
+  const accountId=window.LumenCloud?.activeAccountId||null;
+  return dialog(`<h3>Add a question</h3><label for="practice-q">Question</label><textarea id="practice-q" name="question" rows="3" maxlength="10000" required></textarea><label for="practice-a">Answer</label><textarea id="practice-a" name="answer" rows="4" maxlength="100000" required></textarea><div class="actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button class="btn primary" type="submit">Save question</button></div>`,async form=>{
+    const q=form.question.value.trim(),a=form.answer.value.trim();
+    if(!q||!a){toast('Enter both a question and an answer.');return false;}
+    const result=await api('POST',`/api/lectures/${id}/questions`,{q,a,accountId});
+    lecture.my_notes=result.body;
+    if(LECTURE?.meta.id===id&&(window.LumenCloud?.activeAccountId||null)===accountId){
+      LECTURE.my_notes=result.body;
+      const host=$('#lecture-questions');if(host?.isConnected){host.innerHTML=lectureQuestionsMarkup(LECTURE);host.hidden=false;}
+    }
+    toast('Question saved.');
+  });
 }
 function renderSlides(body, id) {
   const d=LECTURE,original=d.meta.source_pdf,prepared=d.slide_explanations_html||[];
@@ -783,8 +812,8 @@ function wireAudio() {
 }
 
 // ---- notes
-function renderEditor(body, text, save, hint, practice = false) {
-  body.innerHTML = `<div class="notes-workspace"><div class="toolbar editor-toolbar"><button class="btn primary" id="save">Save</button><button class="btn ghost" id="preview-notes" type="button" aria-pressed="false" aria-controls="pv">Preview</button>${practice ? '<button class="btn ghost" id="add-practice-question">Add a question</button>' : ''}<span class="editor-shortcut" title="${h(hint || 'Markdown supported.')}" aria-label="Command or Control S to save">⌘S</span></div>
+function renderEditor(body, text, save, hint) {
+  body.innerHTML = `<div class="notes-workspace"><div class="toolbar editor-toolbar"><button class="btn primary" id="save">Save</button><button class="btn ghost" id="preview-notes" type="button" aria-pressed="false" aria-controls="pv">Preview</button><span class="editor-shortcut" title="${h(hint || 'Markdown supported.')}" aria-label="Command or Control S to save">⌘S</span></div>
     <p id="editor-sync-notice" role="status" hidden style="color:var(--muted);font-size:13px">Changes arrived from another device. Your draft is kept here; saving will preserve both versions if needed.</p>
     <div class="editor single-editor"><textarea id="ed" spellcheck="true" aria-label="Your notes">${h(text)}</textarea><div class="preview prose" id="pv" hidden aria-label="Notes preview"></div></div></div>`;
   const ed = $("#ed"), pv = $("#pv"), button = $("#save"), viewButton = $("#preview-notes");
@@ -831,11 +860,7 @@ function renderEditor(body, text, save, hint, practice = false) {
   };
   button.onclick = doSave;
   ed.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); doSave(); } });
-  if ($('#add-practice-question')) $('#add-practice-question').onclick = () => dialog(`<h3>Add a practice question</h3><label>Question</label><textarea name="question" rows="3" required></textarea><label>Answer</label><textarea name="answer" rows="4" required></textarea><div class="actions"><button type="button" class="btn ghost" data-cancel>Cancel</button><button class="btn primary" type="submit">Insert question</button></div>`, form => {
-    const block='\n\n```qa\n'+JSON.stringify({q:form.question.value.trim(),a:form.answer.value.trim()})+'\n```\n';
-    showPreview(false);
-    ed.setRangeText(block,ed.selectionStart,ed.selectionEnd,'end');ed.dispatchEvent(new Event('input'));ed.focus();
-  });
+
 }
 async function pageNote(id, edit, isCurrent = () => true) {
   const n = await api("GET", `/api/notes/${id}`);

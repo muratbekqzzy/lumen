@@ -90,6 +90,15 @@ const deferred = () => {let resolve; const promise = new Promise(r => {resolve =
 
 const preparedLecture = '# Prepared lecture\n\nA complete explanation with [[Control groups]].\n\n```widget\n<div>Self-contained illustration</div>\n```\n\n# Slide explanations\n\n## Slide 1\nAn official prepared explanation.';
 const markdownRequest = device => ({text:'---\nsection: Psychology\nmodule: Research Methods\nlecture: Lecture 01 - Design\n---\n\n'+preparedLecture,filename:'lecture-01.md',accountId:device.cloud.activeAccountId});
+test('direct practice questions save offline and sync across devices with existing lecture notes intact',async()=>{
+ const remote=server(),a=browser(remote),b=browser(remote);await connect(a);
+ const lecture=await api(a,'POST','/api/lectures/import-markdown',markdownRequest(a));
+ const originalPack=(await api(a,'GET','/api/lectures/'+lecture.id)).generated['study-pack.md'];
+ await api(a,'PUT','/api/lectures/'+lecture.id+'/notes',{body:'Existing private notes'});await connect(a);await connect(b);
+ b.navigator.onLine=false;await api(b,'POST','/api/lectures/'+lecture.id+'/questions',{q:'Why use a control?',a:'To provide a comparison.',accountId:b.cloud.activeAccountId});
+ assert.equal(await b.cloud.sync(),false);b.navigator.onLine=true;await connect(b);await connect(a);
+ const synced=await api(a,'GET','/api/lectures/'+lecture.id);assert(synced.my_notes.startsWith('Existing private notes'));assert(synced.my_notes.includes('Why use a control?'));assert.equal(synced.generated['study-pack.md'],originalPack);
+});
 test('a Markdown-only lecture syncs its complete material and slide explanations across accounts and offline devices',async()=>{
   const remote=server(),a=browser(remote),b=browser(remote),other=browser(remote,{account:'bob'});
   await connect(a);const imported=await api(a,'POST','/api/lectures/import-markdown',markdownRequest(a));await connect(a);await connect(b);await connect(other);

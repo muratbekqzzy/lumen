@@ -13,8 +13,8 @@ original slides, and keep your own notes alongside it.
 - **Your structure.** Sections › modules › lectures and notes, in one folder tree. Create, rename,
   reorder, drag, move and archive. Every change is versioned and can be undone.
 - **Markdown import.** One prepared file creates or updates the correct section,
-  module and lecture. No recording, transcript or PDF is required. Lecture, Slides
-  and Notes are the three reading views; existing notes and sources are preserved.
+  module and lecture. No recording, transcript or PDF is required. Lecture and Slides
+  are the reading views; existing notes and sources are preserved.
 - **Rich study material.** Maths, interactive charts, interactive explainers and
   "check your understanding" quizzes render inside notes.
 - **Concepts.** Write `[[Concept]]` anywhere, Obsidian-style. Each concept gets its own page and
@@ -43,9 +43,9 @@ explanations, images, maths, charts, widgets and quizzes directly. It does not c
 an AI generator, transcribe a recording or generate flashcards during import.
 
 Slides are optional, with private storage and local rendering (20 MiB per PDF).
-The **Notes** view keeps your own writing and manually added practice questions.
-It opens one editor; **Preview** shows formatted writing in the same space, and
-**Edit** returns to your draft. Preview does not save or replace the draft.
+**Add a question** saves a question and answer directly. Your practice questions
+appear below the lecture with answers you can reveal. The lecture Notes tab is
+hidden for now; existing note text remains stored.
 See the [one-file import guide](docs/MARKDOWN_IMPORT.md) for the format and limits.
 The Python/Mac transcription and MCP tools documented below remain separate.
 

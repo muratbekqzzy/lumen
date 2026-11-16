@@ -56,7 +56,7 @@ Interactive material uses fenced blocks:
 - `quiz`: JSON with `title` and `questions`; each question has `q`, string `options`,
   a zero-based numeric `answer`, and optional `why`.
 - `qa`: JSON such as `{"q":"Why use a control group?","a":"To provide a comparison."}`
-  for a simple answer reveal. **Notes → Add a question** creates these manually.
+  for a simple answer reveal. **Add a question** on the lecture page creates these manually.
 
 Optional **Slide explanations** map `## Slide N` headings to PDF page numbers.
 They work without a PDF; attach original slides later through **Slides → Add

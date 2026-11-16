@@ -841,3 +841,8 @@ button, .btn, .row, .item, .card, input, textarea, .dialog, .menu, .pill { -webk
 
 /* Aurora keeps the glass navigation in its own teal night. */
 :root[data-theme="aurora"] .side { background: rgba(10, 36, 46, .62); }
+
+.lecture-questions { width: 100%; max-width: var(--reading-width,760px); margin: 34px auto 0; }
+.lecture-questions[hidden] { display: none; }
+.lecture-questions .practice-question { max-width: none; }
+.lecture-actions { flex-wrap: wrap; justify-content: flex-end; }

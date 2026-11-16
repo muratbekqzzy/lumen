@@ -21,6 +21,7 @@ function interfaceApp({stored = {}, reduced = false, request, graphLoader} = {})
       for (const match of value.matchAll(/\bid="([^"]+)"/g)) { const el = new Element(match[1]); el.parentElement = this; elements.set(match[1], el); }
     }
     get innerHTML() { return this._html; }
+    insertAdjacentHTML(_position,html) { this.innerHTML=this._html+html; }
     setAttribute(key, value) { this.attributes.set(key, value); }
     getAttribute(key) { return this.attributes.get(key); }
     addEventListener(type, handler) { this.handlers[type] = handler; }
@@ -155,11 +156,12 @@ test('older text-only imports explicitly request reattaching the original PDF',(
  const body={innerHTML:'',querySelectorAll(){return []}};app.context.pdfBody=body;app.run('LECTURE='+JSON.stringify({meta:{},chunks:[{n:1,page:1,title:'Text only',said:[]}]}));app.run('renderSlides(pdfBody,"lecture")');
  assert.match(body.innerHTML,/Earlier text-only imports/);assert.match(body.innerHTML,/Add slides/);
 });
-test('the lecture reader has three views and never mounts the old cards or resource navigation',async()=>{
+test('the lecture reader has two views and direct question creation and never mounts the old cards or resource navigation',async()=>{
  const lecture={meta:{id:'l',title:'Lecture 01',status:'complete'},breadcrumbs:[],chunks:[],generated:{},generated_html:{'study-pack.md':'<h2>Understand the experiment</h2><p>A worked example.</p>','flashcards.md':'OLD CARDS','resources.md':'OLD RESOURCES','explain-one.md':'<p>A useful explanation.</p>'},my_notes:''};
  const app=interfaceApp({request:()=>lecture});app.context.window.LumenCloud={};await app.run('pageLecture("l","cards")');
- const html=app.elements.get('main').innerHTML;assert.equal((html.match(/role="tab"/g)||[]).length,3);
- for(const title of ['Lecture','Slides','Notes'])assert(html.includes('>'+title+'</button>'));
+ const html=app.elements.get('main').innerHTML;assert.equal((html.match(/role="tab"/g)||[]).length,2);
+ assert(!html.includes('>Notes</button>'));assert(html.includes('Add a question'));
+ for(const title of ['Lecture','Slides'])assert(html.includes('>'+title+'</button>'));
  for(const old of ['Flashcards','Further resources','Copy tutor','Replace original PDF','Review captions','Add study material'])assert(!html.includes(old));
  const reading=app.elements.get('tabbody').innerHTML;assert(reading.includes('A worked example')&&reading.includes('A useful explanation'));assert(!reading.includes('OLD CARDS')&&!reading.includes('OLD RESOURCES'));
 });
@@ -181,4 +183,23 @@ test('the atmosphere control cycles Space, Sky and Aurora and remembers Aurora',
   assert.match(app.elements.get('theme').getAttribute('aria-label'), /Switch to Space/);
   app.run('setAtmosphere("sky")');
   assert.match(app.elements.get('theme').getAttribute('aria-label'), /Switch to Aurora/);
+});
+
+test('legacy Notes links show the lecture and only saved Q&A, preserving hidden note text',async()=>{
+ const lecture={meta:{id:'l',title:'Lecture',status:'complete'},breadcrumbs:[],chunks:[],generated_html:{'study-pack.md':'<p>Lecture material</p>'},my_notes:'PRIVATE FREEFORM NOTE\n\n```qa\n'+JSON.stringify({q:'Why <change>?',a:'A <cause>.\nCompare groups.'})+'\n```\n'};
+ const app=interfaceApp({request:()=>lecture});await app.run('pageLecture("l","notes")');const html=app.elements.get('tabbody').innerHTML;
+ assert(html.includes('Lecture material'));assert(html.includes('Why &lt;change&gt;?'));assert(html.includes('A &lt;cause&gt;.<br>Compare groups.'));assert(!html.includes('PRIVATE FREEFORM NOTE'));assert(!html.includes('id="ed"'));
+ assert(lecture.my_notes.includes('PRIVATE FREEFORM NOTE'));
+});
+test('Add a question saves directly and a failed save leaves the form open',async()=>{
+ const lecture={meta:{id:'l',title:'Lecture',status:'complete'},breadcrumbs:[],chunks:[],generated_html:{},my_notes:'Keep old writing'};
+ const app=interfaceApp({request:()=>lecture});const notifications=[];let submit,received;
+ app.context.dialog=(_html,fn)=>{submit=fn;};app.context.toast=message=>notifications.push(message);app.context.window.LumenCloud={activeAccountId:'user-a'};
+ await app.run('pageLecture("l")');app.elements.get('add-lecture-question').onclick();
+ const form={question:{value:'  Question?  '},answer:{value:'  Answer.  '}};
+ app.context.api=async(method,path,payload)=>{received={method,path,payload};throw Error('Storage full');};
+ await assert.rejects(submit(form),/Storage full/);assert.equal(form.question.value,'  Question?  ');assert.equal(lecture.my_notes,'Keep old writing');
+ app.context.api=async(method,path,payload)=>{received={method,path,payload};return {body:'Keep old writing\n\n```qa\n'+JSON.stringify({q:payload.q,a:payload.a})+'\n```\n'};};
+ await submit(form);assert.equal(received.method,'POST');assert.equal(received.path,'/api/lectures/l/questions');assert.equal(received.payload.q,'Question?');assert.equal(received.payload.accountId,'user-a');
+ assert(app.elements.get('lecture-questions').innerHTML.includes('Question?'));assert.equal(app.elements.get('lecture-questions').hidden,false);assert(lecture.my_notes.startsWith('Keep old writing'));assert.equal(notifications.at(-1),'Question saved.');
 });
