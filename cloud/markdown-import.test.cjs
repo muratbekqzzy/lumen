@@ -69,7 +69,7 @@ test('Q/A flashcards import as an interactive deck while keeping quizzes and wid
 });
 test('a cards-only Markdown update preserves lecture text, slide explanations, quizzes and personal notes',async()=>{
  const b=browser(),r=await importFile(b);await api(b,'PUT','/api/lectures/'+r.id+'/notes',{body:'Personal writing'});
- const state=b.window.LumenCloud.exportData();state.records[r.id].prepared_practice='```quiz\n{"questions":[{"q":"Q?","options":["A","B"],"answer":0}]}\n```';b.window.LumenCloud.importData(state);
+ await importFile(b,document()+'\n\n# Practice questions\n```quiz\n{"questions":[{"q":"Q?","options":["A","B"],"answer":0}]}\n```');
  const before=await api(b,'GET','/api/lectures/'+r.id);
  const cards='# flashcards.md\n\nQ: What is a control?\nA: A comparison.\n\nQ: Why repeat?\nA: For confidence.';
  const request={text:cards,filename:'flashcards.md',destination:{lecture_id:r.id}};
